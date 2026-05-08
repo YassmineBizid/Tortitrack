@@ -79,10 +79,13 @@ CREATE TABLE IF NOT EXISTS products (
   weight          TEXT,
   category        TEXT,
   shelf_life_days INTEGER DEFAULT 21,
+  unit_price      NUMERIC(10,3) DEFAULT 0,
   is_active       BOOLEAN DEFAULT true,
   created_at      TIMESTAMPTZ DEFAULT NOW(),
   updated_at      TIMESTAMPTZ DEFAULT NOW()
 );
+-- Migration : ajouter unit_price si la table existe déjà
+ALTER TABLE products ADD COLUMN IF NOT EXISTS unit_price NUMERIC(10,3) DEFAULT 0;
 
 INSERT INTO products (barcode, ref, name, weight, category, shelf_life_days) VALUES
   ('3701234560011', 'TC21-01',  'Tortilla Classique 2τ 1ps',  '250g',  'Tortilla Classique', 21),
@@ -117,11 +120,14 @@ CREATE TABLE IF NOT EXISTS delivery_lines (
   manufacture_date    DATE,
   expiry_date         DATE NOT NULL,
   quantity            INTEGER NOT NULL DEFAULT 1 CHECK (quantity > 0),
+  unit_price          NUMERIC(10,3) DEFAULT 0,
   photo_url           TEXT,
   photo_storage_path  TEXT,
   ai_analyzed         BOOLEAN DEFAULT false,
   created_at          TIMESTAMPTZ DEFAULT NOW()
 );
+-- Migration
+ALTER TABLE delivery_lines ADD COLUMN IF NOT EXISTS unit_price NUMERIC(10,3) DEFAULT 0;
 
 -- ── BONS DE RETOUR ────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS return_orders (
@@ -150,6 +156,7 @@ CREATE TABLE IF NOT EXISTS return_lines (
   manufacture_date          DATE,
   expiry_date               DATE,
   quantity                  INTEGER NOT NULL DEFAULT 1 CHECK (quantity > 0),
+  unit_price                NUMERIC(10,3) DEFAULT 0,
   reason                    TEXT CHECK (reason IN (
     'moisissure_avant_dlc_pv','produit_abime_client','produit_abime_camion',
     'moisissure_camion','dlc_atteint_camion','dlc_atteint_pv'
@@ -162,6 +169,8 @@ CREATE TABLE IF NOT EXISTS return_lines (
   photo_storage_path        TEXT,
   created_at                TIMESTAMPTZ DEFAULT NOW()
 );
+-- Migration
+ALTER TABLE return_lines ADD COLUMN IF NOT EXISTS unit_price NUMERIC(10,3) DEFAULT 0;
 
 -- ── EMAIL LOG ─────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS email_log (

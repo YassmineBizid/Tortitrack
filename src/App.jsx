@@ -582,346 +582,85 @@ function FullDocViewer({doc,gmEmail,toast,onClose}){
   );
 }
 
-// ─── CAMERA ──────────────────────────────────────────────────────────────────
-// photoType: "article" | "dates" | "defect" | "full"
-function CameraPanel({isBR, photoType="full", stepLabel="", onCapture, onClose}){
-  const videoRef=useRef(),canvasRef=useRef(),streamRef=useRef(null);
-  const[ready,setReady]=useState(false),[manual,setManual]=useState(""),[camErr,setCamErr]=useState(false);
-  useEffect(()=>{
-    navigator.mediaDevices?.getUserMedia({video:{facingMode:"environment",width:{ideal:1920}}})
-      .then(s=>{streamRef.current=s;if(videoRef.current)videoRef.current.srcObject=s;})
-      .catch(()=>setCamErr(true));
-    return()=>streamRef.current?.getTracks().forEach(t=>t.stop());
-  },[]);
-  const capture=()=>{
-    const v=videoRef.current,c=canvasRef.current;
-    c.width=v.videoWidth;c.height=v.videoHeight;
-    c.getContext("2d").drawImage(v,0,0);
-    streamRef.current?.getTracks().forEach(t=>t.stop());
-    onCapture(c.toDataURL("image/jpeg",.88));
-  };
-
-  const hints={
-    article:"📦 Cadrer l'étiquette frontale ou le code-barres EAN",
-    dates:"📅 Cadrer la zone avec DLC, Date Fabrication et N° Lot",
-    defect:"🔍 Montrer clairement le défaut — moisissure, déchirure, etc.",
-    full:isBR?"🏷️ + 📅 + 🔍 — Étiquette complète + défaut visible":"🏷️ + 📅 — Étiquette + dates du produit",
-  };
-  const labels={article:"Photo 1 — Article",dates:"Photo 2 — Dates & Lot",defect:"Photo 3 — Défaut",full:"Photo complète"};
-
-  return(
-    <div className="cam-panel">
-      <div className="cam-bar">
-        <button className="cam-btn" onClick={onClose}>✕ Fermer</button>
-        <div>
-          <div style={{color:"#fff",fontWeight:700,fontSize:14}}>{labels[photoType]||stepLabel}</div>
-          <div style={{color:"rgba(255,255,255,.65)",fontSize:11}}>{hints[photoType]}</div>
-        </div>
-      </div>
-      {camErr
-        ?<div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16,background:"#111",color:"rgba(255,255,255,.7)"}}>
-           <div style={{fontSize:56}}>⌨️</div>
-           <div style={{fontWeight:700,fontSize:16}}>Caméra non disponible</div>
-           <div style={{fontSize:13,textAlign:"center",padding:"0 32px",opacity:.8}}>Utiliser la saisie manuelle ci-dessous</div>
-         </div>
-        :<video ref={videoRef} className="cam-vid" autoPlay playsInline muted onCanPlay={()=>setReady(true)}/>
-      }
-      <canvas ref={canvasRef} className="cam-canvas"/>
-      {!camErr&&<div className="cam-overlay">
-        <div className="cam-frame">
-          <div className="cam-shade"/>
-          <div className="cam-c cam-c-tl"/><div className="cam-c cam-c-tr"/>
-          <div className="cam-c cam-c-bl"/><div className="cam-c cam-c-br"/>
-          <div className="cam-scan"/>
-        </div>
-        <div className="cam-hint">{hints[photoType]}</div>
-      </div>}
-      <div className="cam-manual">
-        <input placeholder={photoType==="dates"?"DLC, DF, lot manuels…":"Référence ou code-barres…"} value={manual} onChange={e=>setManual(e.target.value)} onKeyDown={e=>e.key==="Enter"&&manual&&onCapture("manual:"+manual.trim())}/>
-        <button onClick={()=>manual&&onCapture("manual:"+manual.trim())} style={{background:"var(--acc)",border:"none",borderRadius:"var(--r)",padding:"0 14px",color:"#fff",cursor:"pointer",fontWeight:600,fontSize:13}}>OK</button>
-      </div>
-      <div className="cam-bottom">
-        {!camErr&&<button className="shutter" onClick={capture} disabled={!ready}><div className="shutter-i"/></button>}
-      </div>
-    </div>
-  );
-}
-
-// ─── AI ANALYZE + REVIEW ──────────────────────────────────────────────────────
-function AIAnalyzeStep({photoB64,isBR,products,photoType="full",extraPhotos={},onDone}){
-  const[steps,setSteps]=useState([
-    {label:"Identification produit",st:"active"},
-    {label:"Lecture DLC · DF · N° Lot",st:"idle"},
-    ...(isBR?[{label:"ML — Cause de retour",st:"idle"}]:[]),
-    {label:"Génération du formulaire",st:"idle"},
-  ]);
-  useEffect(()=>{
-    const run=async()=>{
-      try{
-        // Manual entry
-        if(!photoB64||photoB64.startsWith("manual:")){
-          const q=(photoB64||"").replace("manual:","").trim();
-          const found=products.find(p=>p.ref?.toLowerCase()===q.toLowerCase()||p.barcode===q||p.code===q);
-          onDone(found?{ref:found.ref,code:found.barcode||found.code,name:found.name,product_conf:95,dates_conf:0}:{ref:q,code:null,name:q,product_conf:30,dates_conf:0},null);
-          return;
-        }
-
-        let merged={};
-
-        if(photoType==="full"){
-          // Single photo — analyze everything at once
-          const prompt=buildPrompt(products,isBR,"full");
-          merged=await callAI(photoB64,prompt)||{};
-        } else {
-          // Multi-photo: run analyses in parallel
-          const tasks=[];
-          if(extraPhotos.article&&!extraPhotos.article.startsWith("manual:"))
-            tasks.push(callAI(extraPhotos.article,buildPrompt(products,false,"article")).catch(()=>null));
-          else tasks.push(Promise.resolve(null));
-
-          if(extraPhotos.dates&&!extraPhotos.dates.startsWith("manual:"))
-            tasks.push(callAI(extraPhotos.dates,buildPrompt(products,false,"dates")).catch(()=>null));
-          else tasks.push(Promise.resolve(null));
-
-          if(isBR&&extraPhotos.defect&&!extraPhotos.defect.startsWith("manual:"))
-            tasks.push(callAI(extraPhotos.defect,buildPrompt(products,true,"defect")).catch(()=>null));
-          else tasks.push(Promise.resolve(null));
-
-          const[prod,dates,defect]=await Promise.all(tasks);
-          merged={...(prod||{}),...(dates||{}),...(defect||{})};
-          if(defect?.reason)merged.reason=defect.reason;
-          if(defect?.defect)merged.defect=defect.defect;
-          if(defect?.cause_conf!=null)merged.cause_conf=defect.cause_conf;
-          if(defect?.visual_clues)merged.visual_clues=defect.visual_clues;
-          if(defect?.alternative_reason)merged.alternative_reason=defect.alternative_reason;
-        }
-
-        // Catalogue match
-        const found=products.find(p=>p.ref===merged.ref||(p.barcode||p.code)===merged.code||p.name?.toLowerCase().includes((merged.name||"").toLowerCase()));
-        if(found){merged.ref=found.ref;merged.code=found.barcode||found.code;merged.name=found.name;merged.productId=found.id;}
-        onDone(merged,photoB64);
-      }catch(e){console.error(e);onDone(null,photoB64);}
-    };
-    run();
-    const t1=setTimeout(()=>setSteps(s=>s.map((x,i)=>({...x,st:i===0?"done":i===1?"active":"idle"}))),900);
-    const t2=setTimeout(()=>setSteps(s=>s.map((x,i)=>({...x,st:i<=1?"done":i===2?"active":"idle"}))),1800);
-    const t3=setTimeout(()=>setSteps(s=>s.map((x,i)=>({...x,st:i<s.length-1?"done":"active"}))),2600);
-    return()=>{clearTimeout(t1);clearTimeout(t2);clearTimeout(t3);};
-  },[]);
-  return(
-    <div className="ai-loading">
-      <div className="ai-orb"><span style={{fontSize:28}}>🤖</span></div>
-      <div style={{fontWeight:700,fontSize:17,color:"var(--text)"}}>Analyse IA en cours…</div>
-      <div className="card" style={{width:"100%",maxWidth:340}}>
-        {steps.map((s,i)=>(
-          <div key={i} className="ai-step-row">
-            <div className={`ai-dot ${s.st}`}>{s.st==="done"&&<Ico n="chk" size={12} stroke="#fff"/>}</div>
-            <span style={{fontSize:13,color:s.st==="done"?"var(--success)":s.st==="active"?"var(--acc)":"var(--muted)",fontWeight:s.st==="active"?600:400}}>{s.label}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function ArticleReviewForm({photoB64,aiData,isBR,products,onConfirm,onRetake}){
-  const[form,setForm]=useState({ref:aiData?.ref||"",code:aiData?.code||"",name:aiData?.name||"",dlc:aiData?.dlc||"",df:aiData?.df||"",lot:aiData?.lot||"",qty:1,reason:aiData?.reason||""});
-  const[prodSel,setProdSel]=useState(aiData?.productId||"");
+// ─── ARTICLE FORM (saisie manuelle uniquement) ───────────────────────────────
+function ArticleForm({isBR,products,onConfirm,onClose}){
+  const[form,setForm]=useState({ref:"",code:"",name:"",dlc:"",df:"",lot:"",qty:1,reason:"",price:0});
+  const[prodSel,setProdSel]=useState("");
   const d=daysLeft(form.dlc);
-  const ai=k=>aiData&&aiData[k]!=null&&aiData[k]!=="";
-  const ok=form.name&&form.dlc&&(!isBR||form.reason);
+  const ok=form.name&&(!isBR?form.dlc:form.reason);
+
+  const pickProduct=(id)=>{
+    const p=products.find(x=>x.id===id);
+    setProdSel(id);
+    if(p)setForm(f=>({...f,ref:p.ref,code:p.barcode||p.code||"",name:p.name,price:p.unit_price||0}));
+  };
+
   return(
     <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
-      {/* AI confidence */}
-      {aiData&&<div className="ai-conf-strip"><span className="ai-chip">IA</span><span className="ai-conf-item">🏷️ Produit {aiData.product_conf||"?"}%</span><span className="ai-conf-item">📅 Dates {aiData.dates_conf||"?"}%</span>{isBR&&aiData.cause_conf!=null&&<span className="ai-conf-item">🔍 Cause {aiData.cause_conf}%</span>}</div>}
+      <div style={{background:"var(--shell)",padding:"14px 16px",display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
+        <button style={{background:"rgba(255,255,255,.18)",border:"none",borderRadius:"var(--r)",padding:"7px 12px",color:"#fff",cursor:"pointer",fontSize:13,fontWeight:600}} onClick={onClose}>✕</button>
+        <div style={{color:"#fff",fontWeight:700,fontSize:15}}>Ajouter un article</div>
+      </div>
       <div style={{flex:1,overflowY:"auto",padding:20}}>
-        {/* Photo */}
-        <div className="row gap12 mt8" style={{marginBottom:16}}>
-          {photoB64&&!photoB64.startsWith("manual:")
-            ?<img src={photoB64} style={{width:80,height:80,borderRadius:"var(--r-md)",objectFit:"cover",border:"1px solid var(--bord)",flexShrink:0}} alt=""/>
-            :<div style={{width:80,height:80,borderRadius:"var(--r-md)",background:"var(--surf2)",border:"1px solid var(--bord)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:32,flexShrink:0}}>🏷️</div>}
-          <div>
-            {aiData?<div style={{fontSize:12,color:"var(--purple)",fontWeight:600,marginBottom:8}}>✨ Formulaire pré-rempli par l'IA — vérifier les champs <span style={{background:"var(--purple-l)",border:"1px solid rgba(106,35,130,.2)",padding:"1px 5px",borderRadius:2,fontWeight:700}}>surlignés</span></div>:<div style={{fontSize:12,color:"var(--warn)",fontWeight:600,marginBottom:8}}>⚠️ Analyse impossible — saisir manuellement</div>}
-            <button className="btn btn-ghost btn-sm" onClick={onRetake}><Ico n="cam" size={13}/>Re-photographier</button>
-          </div>
-        </div>
-
         {/* Produit */}
         <div className="fs">
           <div className="fs-hdr">🏷️ Identification Produit</div>
           <div className="fs-body">
             <div className="field">
-              <div className="lbl">Catalogue produits</div>
-              <select className="sel" value={prodSel} onChange={e=>{const p=products.find(x=>x.id===e.target.value);setProdSel(e.target.value);if(p)setForm(f=>({...f,ref:p.ref,code:p.barcode||p.code,name:p.name}));}}>
-                <option value="">-- Corriger si nécessaire --</option>
+              <div className="lbl">Choisir depuis le catalogue</div>
+              <select className="sel" value={prodSel} onChange={e=>pickProduct(e.target.value)}>
+                <option value="">-- Sélectionner un produit --</option>
                 {products.map(p=><option key={p.id} value={p.id}>{p.ref} · {p.name}</option>)}
               </select>
             </div>
-            <div className="field"><div className="lbl">Nom du produit *</div><input className={`inp${ai("name")?" ai":""}`} value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="Nom du produit"/></div>
+            <div className="field"><div className="lbl">Nom du produit *</div><input className="inp" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="Nom du produit"/></div>
             <div className="grid2">
-              <div className="field"><div className="lbl">Code-barres EAN</div><input className={`inp${ai("code")?" ai":""}`} value={form.code} onChange={e=>setForm(f=>({...f,code:e.target.value}))} placeholder="3701234…"/></div>
-              <div className="field"><div className="lbl">Référence</div><input className={`inp${ai("ref")?" ai":""}`} value={form.ref} onChange={e=>setForm(f=>({...f,ref:e.target.value}))} placeholder="TC21-01"/></div>
+              <div className="field"><div className="lbl">Référence</div><input className="inp" value={form.ref} onChange={e=>setForm(f=>({...f,ref:e.target.value}))} placeholder="TC21-01"/></div>
+              <div className="field"><div className="lbl">Code-barres EAN</div><input className="inp" value={form.code} onChange={e=>setForm(f=>({...f,code:e.target.value}))} placeholder="3701234…"/></div>
             </div>
           </div>
         </div>
-
         {/* Dates */}
         <div className="fs">
           <div className="fs-hdr">📅 Dates &amp; Traçabilité</div>
           <div className="fs-body">
             <div className="grid2">
               <div className="field">
-                <div className="lbl">DLC *</div>
-                <input className={`inp${ai("dlc")?" ai":""}${d!==null&&d<0?" err":""}`} type="date" value={form.dlc} onChange={e=>setForm(f=>({...f,dlc:e.target.value}))}/>
+                <div className="lbl">DLC {!isBR?"*":""}</div>
+                <input className={`inp${d!==null&&d<0?" err":""}`} type="date" value={form.dlc} onChange={e=>setForm(f=>({...f,dlc:e.target.value}))}/>
                 {form.dlc&&d!==null&&<div style={{fontSize:11,marginTop:3}} className={d<0?"dlc-exp":d<=3?"dlc-warn":"dlc-ok"}>{d<0?`⚠️ Expiré (${-d}j)`:d===0?"⚠️ Expire aujourd'hui":d<=3?`⚠️ ${d}j restants`:`✓ ${d} jours`}</div>}
               </div>
-              <div className="field"><div className="lbl">Date Fabrication</div><input className={`inp${ai("df")?" ai":""}`} type="date" value={form.df} onChange={e=>setForm(f=>({...f,df:e.target.value}))}/></div>
+              <div className="field"><div className="lbl">Date Fabrication</div><input className="inp" type="date" value={form.df} onChange={e=>setForm(f=>({...f,df:e.target.value}))}/></div>
             </div>
             <div className="grid2">
-              <div className="field"><div className="lbl">N° Lot</div><input className={`inp${ai("lot")?" ai":""}`} value={form.lot} onChange={e=>setForm(f=>({...f,lot:e.target.value}))} placeholder="26005"/></div>
-              <div className="field"><div className="lbl">Quantité</div><input className="inp" type="number" min="1" value={form.qty} onChange={e=>setForm(f=>({...f,qty:+e.target.value}))}/></div>
+              <div className="field"><div className="lbl">N° Lot</div><input className="inp" value={form.lot} onChange={e=>setForm(f=>({...f,lot:e.target.value}))} placeholder="26005"/></div>
+              <div className="field"><div className="lbl">Quantité *</div><input className="inp" type="number" min="1" value={form.qty} onChange={e=>setForm(f=>({...f,qty:Math.max(1,+e.target.value)}))}/></div>
             </div>
+            <div className="field"><div className="lbl">Prix unitaire (TND)</div><input className="inp" type="number" step="0.001" min="0" placeholder="0.000" value={form.price||""} onChange={e=>setForm(f=>({...f,price:parseFloat(e.target.value)||0}))}/></div>
           </div>
         </div>
-
-        {/* Cause (BR) */}
+        {/* Cause de retour (BR uniquement) */}
         {isBR&&<div className="fs">
           <div className="fs-hdr">🔍 Cause de Retour *</div>
           <div className="fs-body">
-            {aiData?.defect&&<div className="ml-result">
-              <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
-                <span style={{fontWeight:700,color:"var(--purple)",fontSize:13}}>🤖 Analyse ML — Défaut détecté</span>
-                <span style={{fontSize:11,color:"var(--muted)"}}>{aiData.cause_conf}% confiance</span>
-              </div>
-              <div style={{fontSize:13,marginBottom:6}}>{aiData.defect}</div>
-              {aiData.visual_clues&&<div style={{fontSize:11,color:"var(--muted)",marginBottom:6}}>👁️ Indices visuels : {aiData.visual_clues}</div>}
-              <div className="ml-bar"><div className="ml-bar-fill" style={{width:(aiData.cause_conf||0)+"%"}}/></div>
-              {aiData.alternative_reason&&<div style={{fontSize:11,color:"var(--muted)",marginTop:8}}>⚠️ Alternative possible : {RETURN_REASONS.find(r=>r.id===aiData.alternative_reason)?.label||aiData.alternative_reason}</div>}
-            </div>}
             <div className="rsn-grid">
               {RETURN_REASONS.map(r=>(
                 <div key={r.id} className={`rsn-pill${form.reason===r.id?" sel":""}`} style={form.reason===r.id?{borderColor:r.color,background:r.color+"18",color:r.color}:{}} onClick={()=>setForm(f=>({...f,reason:r.id}))}>
                   {r.emoji} {r.label}
-                  {aiData?.reason===r.id&&<span className="rsn-ai-tag">IA</span>}
                 </div>
               ))}
             </div>
           </div>
         </div>}
       </div>
-
-      <div style={{padding:"14px 20px",borderTop:"1px solid var(--bord)",background:"var(--surf2)",display:"flex",gap:10,justifyContent:"flex-end"}}>
-        <button className="btn btn-neutral btn-sm" onClick={onRetake}>Reprendre photo</button>
-        <button className="btn btn-acc btn-sm" onClick={()=>onConfirm({...form,ref:form.ref||form.code,photo:photoB64&&!photoB64.startsWith("manual:")?photoB64:null,aiAnalyzed:!!aiData})} disabled={!ok}>
-          <Ico n="chk" size={14} stroke="#fff"/>Confirmer l'article
+      <div style={{padding:"14px 20px",borderTop:"1px solid var(--bord)",background:"var(--surf2)",display:"flex",gap:10,justifyContent:"flex-end",flexShrink:0}}>
+        <button className="btn btn-neutral btn-sm" onClick={onClose}>Annuler</button>
+        <button className="btn btn-acc btn-sm" onClick={()=>onConfirm({...form,ref:form.ref||form.code})} disabled={!ok}>
+          <Ico n="chk" size={14} stroke="#fff"/>Ajouter l'article
         </button>
       </div>
     </div>
   );
-}
-
-// ─── ARTICLE CAPTURE FLOW ────────────────────────────────────────────────────
-function ArticleCapture({isBR,products,onDone,onClose}){
-  const[stage,setStage]=useState("choose");     // choose|cam1|cam2|cam3|analyzing|review
-  const[photos,setPhotos]=useState({article:null,dates:null,defect:null});
-  const[aiData,setAiData]=useState(null);
-  const[mode,setMode]=useState("steps");        // steps | single | manual
-
-  // Single photo: analyze all
-  const analyzeSingle=async(b64)=>{
-    setStage("analyzing");
-    setPhotos(p=>({...p,article:b64}));
-    // AIAnalyzeStep handles the API call
-  };
-
-  const finishCapture=()=>{
-    setStage("analyzing");
-  };
-
-  // CHOICE SCREEN
-  if(stage==="choose")return(
-    <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
-      <div style={{background:"var(--shell)",padding:"14px 16px",display:"flex",alignItems:"center",gap:12}}>
-        <button style={{background:"rgba(255,255,255,.18)",border:"none",borderRadius:"var(--r)",padding:"7px 12px",color:"#fff",cursor:"pointer",fontSize:13,fontWeight:600}} onClick={onClose}>✕</button>
-        <div style={{color:"#fff",fontWeight:700,fontSize:15}}>Ajouter un article</div>
-      </div>
-      <div style={{flex:1,display:"flex",flexDirection:"column",gap:16,padding:24}}>
-        <div style={{background:"linear-gradient(135deg,var(--purple-l),#f0ecff)",border:"2px solid rgba(106,35,130,.2)",borderRadius:"var(--r-lg)",padding:18}}>
-          <div style={{fontWeight:700,fontSize:15,color:"var(--purple)",marginBottom:6}}>✨ Mode Intelligent — 1 seule photo</div>
-          <div style={{fontSize:13,color:"var(--muted)",marginBottom:14}}>L'IA extrait produit + dates{isBR?" + cause de retour":""} en une seule prise</div>
-          <button className="btn btn-acc btn-w" style={{background:"var(--purple)",borderColor:"var(--purple)"}} onClick={()=>{setMode("single");setStage("cam1");}}>
-            📸 1 Photo — tout identifier
-          </button>
-        </div>
-        <div style={{textAlign:"center",color:"var(--muted)",fontSize:12,fontWeight:600}}>— OU —</div>
-        <div className="card card-body" style={{padding:0}}>
-          <div style={{padding:"14px 16px",borderBottom:"1px solid var(--surf3)",fontWeight:700,fontSize:14}}>📷 Mode précis — {isBR?"3":"2"} photos séparées</div>
-          {[
-            {icon:"🏷️",title:"Photo 1 — Article",sub:"Étiquette frontale ou code-barres EAN"},
-            {icon:"📅",title:"Photo 2 — Dates & Lot",sub:"Zone DLC, DF et numéro de lot"},
-            ...(isBR?[{icon:"🔍",title:"Photo 3 — Cause retour",sub:"Défaut visible — moisissure, dégât, etc."}]:[]),
-          ].map((s,i)=><div key={i} style={{display:"flex",gap:12,padding:"12px 16px",borderBottom:"1px solid var(--surf3)"}}>
-            <span style={{fontSize:24,flexShrink:0}}>{s.icon}</span>
-            <div><div style={{fontWeight:600,fontSize:13}}>{s.title}</div><div style={{fontSize:12,color:"var(--muted)"}}>{s.sub}</div></div>
-          </div>)}
-          <div style={{padding:14}}>
-            <button className="btn btn-ghost btn-w" onClick={()=>{setMode("steps");setStage("cam1");}}>Prendre {isBR?"3":"2"} photos séparées →</button>
-          </div>
-        </div>
-        <button className="btn btn-neutral" onClick={()=>{setMode("manual");setStage("reviewing_manual");}}>
-          ✏️ Saisir manuellement sans photo
-        </button>
-      </div>
-    </div>
-  );
-
-  // CAMERA STEPS
-  if(stage==="cam1"){
-    const pType=mode==="single"?"full":"article";
-    return<CameraPanel isBR={isBR} photoType={pType} onClose={onClose}
-      onCapture={b64=>{
-        if(b64.startsWith("manual:")){setPhotos(p=>({...p,article:b64}));setStage(mode==="single"||!isBR?"analyzing":"cam2");}
-        else{setPhotos(p=>({...p,article:b64}));setStage(mode==="single"?"analyzing":"cam2");}
-      }}/>;
-  }
-  if(stage==="cam2"){
-    return<CameraPanel isBR={isBR} photoType="dates" onClose={onClose}
-      onCapture={b64=>{setPhotos(p=>({...p,dates:b64}));setStage(isBR?"cam3":"analyzing");}}/>;
-  }
-  if(stage==="cam3"&&isBR){
-    return<CameraPanel isBR={true} photoType="defect" onClose={onClose}
-      onCapture={b64=>{setPhotos(p=>({...p,defect:b64}));setStage("analyzing");}}/>;
-  }
-
-  // ANALYZING
-  if(stage==="analyzing"||stage==="reviewing_manual"){
-    const mainPhoto=photos.article;
-    const pType=mode==="single"?"full":(photos.defect?"defect":(photos.dates?"dates":"article"));
-    return(
-      <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
-        <AIAnalyzeStep
-          photoB64={mainPhoto||"manual:"}
-          isBR={isBR}
-          products={products}
-          photoType={mode==="single"?"full":pType}
-          extraPhotos={photos}
-          onDone={(r,p)=>{setAiData(r||{});if(p)setPhotos(prev=>({...prev,article:p}));setStage("review");}}
-        />
-      </div>
-    );
-  }
-
-  // REVIEW
-  if(stage==="review"){
-    return<ArticleReviewForm
-      photos={photos}
-      aiData={aiData}
-      isBR={isBR}
-      products={products}
-      onRetake={()=>{setStage("choose");setAiData(null);setPhotos({article:null,dates:null,defect:null});}}
-      onConfirm={a=>{onDone({...a,photos});onClose();}}/>;
-  }
-  return null;
 }
 
 // ─── BL/BR FORM PANEL ────────────────────────────────────────────────────────
@@ -932,7 +671,7 @@ function DocFormPanel({type,vendors,products,onSave,onClose,toast}){
   const[clientName,setClientName]=useState("");
   const[clientPhone,setClientPhone]=useState("");
   const[lines,setLines]=useState([]);
-  const[capturing,setCapturing]=useState(false);
+  const[addingLine,setAddingLine]=useState(false);
   const[step,setStep]=useState("form"); // form|preview
   const[saving,setSaving]=useState(false);
 
@@ -951,20 +690,15 @@ function DocFormPanel({type,vendors,products,onSave,onClose,toast}){
       }).select().single();
       if(docErr)throw docErr;
       for(const l of lines){
-        let photoUrl=null;
-        if(l.photo&&!l.photo.startsWith("manual:")){
-          try{const{url}=await uploadPhoto(l.photo,`${type}_${doc.id}_${Date.now()}.jpg`);photoUrl=url;}catch{}
-        }
         const lineData=isBL?{
           delivery_id:doc.id,barcode:l.code||"",product_ref:l.ref||l.code||"",product_name:l.name,
           lot_number:l.lot||null,manufacture_date:l.df||null,expiry_date:l.dlc,quantity:l.qty,
-          photo_url:photoUrl,ai_analyzed:!!l.aiAnalyzed,
+          unit_price:parseFloat(l.price)||0,photo_url:null,ai_analyzed:false,
         }:{
           return_id:doc.id,barcode:l.code||"",product_ref:l.ref||l.code||"",product_name:l.name,
           lot_number:l.lot||null,manufacture_date:l.df||null,expiry_date:l.dlc||null,quantity:l.qty,
-          reason:l.reason,ai_validated_by_operator:!!l.aiAnalyzed,
-          ai_confidence:l.aiConfidence||null,ai_explanation:l.aiExplanation||null,
-          photo_url:photoUrl,
+          reason:l.reason,unit_price:parseFloat(l.price)||0,ai_validated_by_operator:false,
+          photo_url:null,
         };
         await sb.from(isBL?"delivery_lines":"return_lines").insert(lineData);
       }
@@ -975,10 +709,10 @@ function DocFormPanel({type,vendors,products,onSave,onClose,toast}){
     finally{setSaving(false);}
   };
 
-  if(capturing)return(
+  if(addingLine)return(
     <div className="panel-overlay">
       <div className="panel">
-        <ArticleCapture isBR={!isBL} products={products} onDone={a=>setLines(l=>[...l,{...a,id:uid()}])} onClose={()=>setCapturing(false)}/>
+        <ArticleForm isBR={!isBL} products={products} onConfirm={a=>{setLines(l=>[...l,{...a,id:uid()}]);setAddingLine(false);}} onClose={()=>setAddingLine(false)}/>
       </div>
     </div>
   );
@@ -1020,19 +754,18 @@ function DocFormPanel({type,vendors,products,onSave,onClose,toast}){
             <div className="fs">
               <div className="fs-hdr" style={{justifyContent:"space-between"}}>
                 <span>{isBL?"📦 Articles chargés":"📦 Articles retournés"} ({lines.length})</span>
-                <button className="btn btn-acc btn-sm" onClick={()=>setCapturing(true)}><Ico n="cam" size={13} stroke="#fff"/>📸 Photo + IA</button>
+                <button className="btn btn-acc btn-sm" onClick={()=>setAddingLine(true)}><Ico n="plus" size={13} stroke="#fff"/>Ajouter un article</button>
               </div>
               <div style={{padding:"0 0 8px"}}>
-                {!lines.length&&<div className="empty" style={{padding:"24px 16px"}}><div style={{fontSize:32,marginBottom:8}}>📸</div><div className="fs12">Photographiez les articles</div></div>}
+                {!lines.length&&<div className="empty" style={{padding:"24px 16px"}}><div style={{fontSize:32,marginBottom:8}}>�</div><div className="fs12">Aucun article — cliquez « Ajouter un article »</div></div>}
                 {lines.map(l=>{const r=RETURN_REASONS.find(x=>x.id===l.reason);return(
                   <div key={l.id} style={{display:"flex",alignItems:"flex-start",gap:12,padding:"12px 14px",borderBottom:"1px solid var(--surf3)"}}>
-                    {l.photo?<img src={l.photo} className="photo-thumb" alt=""/>:<div className="photo-box">{r?.emoji||"🫓"}</div>}
+                    <div style={{width:40,height:40,borderRadius:"var(--r)",background:"var(--surf2)",border:"1px solid var(--bord)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>{r?.emoji||"🫓"}</div>
                     <div style={{flex:1,minWidth:0}}>
-                      <div className="row-sb"><span className="tag">{l.ref||l.code}</span><span className={`st ${isBL?"st-info":"st-err"}`}>{l.qty} u</span></div>
+                      <div className="row-sb"><span className="tag">{l.ref||l.code||"—"}</span><span className={`st ${isBL?"st-info":"st-err"}`}>{l.qty} u</span></div>
                       <div style={{fontWeight:600,fontSize:14,marginTop:4,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{l.name}</div>
                       <div className="row gap8 fs12 muted mt8"><span>Lot:<span className="mono">{l.lot||"—"}</span></span><span>DLC:{fmt(l.dlc)}</span></div>
                       {r&&<div style={{fontSize:11,fontWeight:600,color:r.color,marginTop:4}}>{r.emoji} {r.label}</div>}
-                      {l.aiAnalyzed&&<span style={{background:"var(--purple)",color:"#fff",fontSize:8,fontWeight:700,padding:"1px 5px",borderRadius:2,marginTop:3,display:"inline-block"}}>🤖 IA</span>}
                     </div>
                     <button className="btn-ico btn-sm" onClick={()=>setLines(ls=>ls.filter(x=>x.id!==l.id))}><Ico n="trash" size={14}/></button>
                   </div>
@@ -1215,26 +948,32 @@ function HistoryView({type,vendors,gmEmail,toast}){
 
 // ─── GM DASHBOARD ─────────────────────────────────────────────────────────────
 function GMDashboard(){
-  const[kpis,setKpis]=useState({bl:0,br:0,chg:0,ret:0,tx:0,ai:0});
+  const[kpis,setKpis]=useState({bl:0,br:0,chg:0,ret:0,tx:0});
+  const[ca,setCa]=useState({livre:0,retourne:0,net:0});
   const[vperf,setVperf]=useState([]);
   const[reasons,setReasons]=useState([]);
   const[trend,setTrend]=useState([]);
   const[loading,setLoading]=useState(true);
 
+  const fmtCA=(v)=>Number(v).toLocaleString("fr-TN",{minimumFractionDigits:3,maximumFractionDigits:3})+" TND";
+
   const load=async()=>{
     setLoading(true);
     try{
       const[{data:bls},{data:brs},{data:vp},{data:daily}]=await Promise.all([
-        sb.from("delivery_orders").select("id,total_units,delivery_lines(quantity)").neq("status","draft"),
-        sb.from("return_orders").select("id,total_units,return_lines(quantity,reason,ai_validated_by_operator)").neq("status","draft"),
+        sb.from("delivery_orders").select("id,delivery_lines(quantity,unit_price,product_ref)").neq("status","draft"),
+        sb.from("return_orders").select("id,return_lines(quantity,unit_price,product_ref,reason)").neq("status","draft"),
         sb.from("v_vendor_performance").select("*").limit(10),
         sb.from("v_daily_kpis").select("*").order("date",{ascending:false}).limit(14),
       ]);
       const totalChg=(bls||[]).reduce((s,d)=>s+(d.delivery_lines||[]).reduce((a,l)=>a+(l.quantity||0),0),0);
       const totalRet=(brs||[]).reduce((s,d)=>s+(d.return_lines||[]).reduce((a,l)=>a+(l.quantity||0),0),0);
-      const aiCnt=(brs||[]).reduce((s,d)=>s+(d.return_lines||[]).filter(l=>l.ai_validated_by_operator).length,0);
       const tx=totalChg>0?((totalRet/totalChg)*100).toFixed(1):0;
-      setKpis({bl:(bls||[]).length,br:(brs||[]).length,chg:totalChg,ret:totalRet,tx,ai:aiCnt});
+      setKpis({bl:(bls||[]).length,br:(brs||[]).length,chg:totalChg,ret:totalRet,tx});
+      // CA
+      const caLivre=(bls||[]).reduce((s,d)=>s+(d.delivery_lines||[]).reduce((a,l)=>a+(l.quantity||0)*(l.unit_price||0),0),0);
+      const caRetourne=(brs||[]).reduce((s,d)=>s+(d.return_lines||[]).reduce((a,l)=>a+(l.quantity||0)*(l.unit_price||0),0),0);
+      setCa({livre:caLivre,retourne:caRetourne,net:caLivre-caRetourne});
       setVperf(vp||[]);
       // Reasons from BR lines
       const rMap={};RETURN_REASONS.forEach(r=>rMap[r.id]=0);
@@ -1259,15 +998,40 @@ function GMDashboard(){
         {loading?<div style={{textAlign:"center",padding:40,color:"var(--muted)"}}>Chargement des données…</div>:<>
           {/* KPI tiles */}
           <div className="tiles">
-            {[{ico:"🚛",lbl:"Bons Livraison",val:kpis.bl,sub:kpis.chg+" u chargées",c:"var(--acc)"},{ico:"↩️",lbl:"Bons Retour",val:kpis.br,sub:kpis.ret+" u retournées",c:"var(--error)"},{ico:"📉",lbl:"Taux Retour",val:kpis.tx+"%",sub:"Objectif < 3%",c:+kpis.tx>5?"var(--error)":+kpis.tx>2?"var(--warn)":"var(--success)"},{ico:"🤖",lbl:"Analyses IA",val:kpis.ai,sub:"articles reconnus",c:"var(--purple)"}].map(k=>(
+            {[{ico:"🚛",lbl:"Bons Livraison",val:kpis.bl,sub:kpis.chg+" u chargées",c:"var(--acc)"},{ico:"↩️",lbl:"Bons Retour",val:kpis.br,sub:kpis.ret+" u retournées",c:"var(--error)"},{ico:"📉",lbl:"Taux Retour",val:kpis.tx+"%",sub:"Objectif < 3%",c:+kpis.tx>5?"var(--error)":+kpis.tx>2?"var(--warn)":"var(--success)"},{ico:"💰",lbl:"CA Net",val:fmtCA(ca.net),sub:"livraisons − retours",c:ca.net>=0?"var(--success)":"var(--error)"}].map(k=>(
               <div key={k.lbl} className="tile">
                 <div className="tile-stripe" style={{background:k.c}}/>
                 <div className="tile-icon">{k.ico}</div>
                 <div className="tile-lbl">{k.lbl}</div>
-                <div className="tile-val" style={{color:k.c}}>{k.val}</div>
+                <div className="tile-val" style={{color:k.c,fontSize:k.lbl==="CA Net"?14:undefined}}>{k.val}</div>
                 <div className="tile-sub">{k.sub}</div>
               </div>
             ))}
+          </div>
+
+          {/* CA Card */}
+          <div className="card" style={{marginBottom:16}}>
+            <div className="card-header"><div className="card-header-title">💰 Chiffre d'Affaires</div><span style={{fontSize:11,color:"var(--muted)"}}>Prix unitaires × quantités des BL / BR</span></div>
+            <div className="card-body">
+              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:16}}>
+                <div style={{background:"var(--surf2)",border:"1px solid var(--bord)",borderRadius:"var(--r-md)",padding:"14px 16px"}}>
+                  <div style={{fontSize:11,color:"var(--muted)",fontWeight:600,marginBottom:6}}>CA LIVRÉ (BL)</div>
+                  <div style={{fontSize:18,fontWeight:800,color:"var(--acc)",fontFamily:"var(--mono)"}}>{fmtCA(ca.livre)}</div>
+                  <div style={{fontSize:11,color:"var(--muted)",marginTop:4}}>{kpis.chg} unités livrées</div>
+                </div>
+                <div style={{background:"var(--surf2)",border:"1px solid var(--bord)",borderRadius:"var(--r-md)",padding:"14px 16px"}}>
+                  <div style={{fontSize:11,color:"var(--muted)",fontWeight:600,marginBottom:6}}>CA RETOURNÉ (BR)</div>
+                  <div style={{fontSize:18,fontWeight:800,color:"var(--error)",fontFamily:"var(--mono)"}}>{fmtCA(ca.retourne)}</div>
+                  <div style={{fontSize:11,color:"var(--muted)",marginTop:4}}>{kpis.ret} unités retournées</div>
+                </div>
+                <div style={{background:ca.net>=0?"var(--success-l, #e6f9f0)":"var(--error-l)",border:`1px solid ${ca.net>=0?"rgba(0,160,80,.25)":"rgba(187,0,0,.2)"}`,borderRadius:"var(--r-md)",padding:"14px 16px"}}>
+                  <div style={{fontSize:11,color:"var(--muted)",fontWeight:600,marginBottom:6}}>CA NET (BL − BR)</div>
+                  <div style={{fontSize:18,fontWeight:800,color:ca.net>=0?"var(--success)":"var(--error)",fontFamily:"var(--mono)"}}>{fmtCA(ca.net)}</div>
+                  <div style={{fontSize:11,color:"var(--muted)",marginTop:4}}>Taux retour : {kpis.tx}%</div>
+                </div>
+              </div>
+              {ca.livre===0&&<div style={{marginTop:12,fontSize:11,color:"var(--warn)",fontWeight:600}}>⚠️ CA à 0 — ajoutez les prix unitaires dans le Catalogue produits pour activer ce calcul.</div>}
+            </div>
           </div>
 
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:20}}>
@@ -1341,15 +1105,16 @@ function CatalogView({toast}){
   const[products,setProducts]=useState([]);
   const[loading,setLoading]=useState(true);
   const[panel,setPanel]=useState(null); // null | {mode:'add'|'edit', data?}
-  const[form,setForm]=useState({barcode:"",ref:"",name:"",weight:"",category:"",shelf_life_days:21});
+  const[form,setForm]=useState({barcode:"",ref:"",name:"",weight:"",category:"",shelf_life_days:21,unit_price:0});
 
   const load=async()=>{setLoading(true);const{data}=await sb.from("products").select("*").eq("is_active",true).order("ref");setProducts(data||[]);setLoading(false);};
   useEffect(()=>{load();},[]);
 
   const save=async()=>{
     if(!form.ref||!form.name){toast("Réf et Nom requis","err");return;}
-    if(panel.mode==="edit"){await sb.from("products").update({barcode:form.barcode,ref:form.ref,name:form.name,weight:form.weight,category:form.category,shelf_life_days:form.shelf_life_days}).eq("id",panel.data.id);}
-    else{await sb.from("products").insert({barcode:form.barcode,ref:form.ref,name:form.name,weight:form.weight,category:form.category,shelf_life_days:form.shelf_life_days});}
+    const payload={barcode:form.barcode,ref:form.ref,name:form.name,weight:form.weight,category:form.category,shelf_life_days:form.shelf_life_days,unit_price:parseFloat(form.unit_price)||0};
+    if(panel.mode==="edit"){await sb.from("products").update(payload).eq("id",panel.data.id);}
+    else{await sb.from("products").insert(payload);}
     toast(panel.mode==="edit"?"✅ Produit modifié":"✅ Produit ajouté","ok");
     setPanel(null);load();
   };
@@ -1359,18 +1124,18 @@ function CatalogView({toast}){
     <div>
       <div className="content-header">
         <div><div className="content-title">Catalogue Produits</div><div className="content-sub">{products.length} article(s) · Reconnaissance IA</div></div>
-        <button className="btn btn-acc btn-sm" onClick={()=>{setForm({barcode:"",ref:"",name:"",weight:"",category:"",shelf_life_days:21});setPanel({mode:"add"});}}>
+        <button className="btn btn-acc btn-sm" onClick={()=>{setForm({barcode:"",ref:"",name:"",weight:"",category:"",shelf_life_days:21,unit_price:0});setPanel({mode:"add"});}}>
           <Ico n="plus" size={14} stroke="#fff"/>Ajouter un produit
         </button>
       </div>
       <div className="content-body">
         <div style={{background:"var(--purple-l)",border:"1px solid rgba(106,35,130,.2)",borderRadius:"var(--r-md)",padding:"10px 14px",marginBottom:16,fontSize:12,color:"var(--purple)",fontWeight:600}}>
-          🤖 Ces produits alimentent la reconnaissance IA lors du scan des photos. Maintenir le catalogue à jour pour une meilleure précision.
+          📦 Ces produits alimentent les bons de livraison et de retour. Le prix unitaire sert au calcul du Chiffre d'Affaires.
         </div>
         {loading?<div style={{textAlign:"center",padding:40,color:"var(--muted)"}}>Chargement…</div>:
         <div className="tbl-wrap">
           <table className="tbl">
-            <thead><tr><th>Référence</th><th>Code-barres EAN</th><th>Nom du produit</th><th>Format</th><th>Catégorie</th><th>DLC théorique</th><th>Actions</th></tr></thead>
+            <thead><tr><th>Référence</th><th>Code-barres EAN</th><th>Nom du produit</th><th>Format</th><th>Catégorie</th><th>DLC théorique</th><th>Prix (TND)</th><th>Actions</th></tr></thead>
             <tbody>{products.map(p=>(
               <tr key={p.id}>
                 <td><span className="tag">{p.ref}</span></td>
@@ -1379,6 +1144,7 @@ function CatalogView({toast}){
                 <td>{p.weight||"—"}</td>
                 <td>{p.category||"—"}</td>
                 <td>{p.shelf_life_days?p.shelf_life_days+" j":"—"}</td>
+                <td className="mono-cell" style={{fontWeight:600,color:"var(--acc)"}}>{p.unit_price?Number(p.unit_price).toFixed(3):"—"}</td>
                 <td onClick={e=>e.stopPropagation()}>
                   <div className="actions">
                     <button className="btn-ico" onClick={()=>{setForm(p);setPanel({mode:"edit",data:p});}}><Ico n="edit" size={14}/></button>
@@ -1402,7 +1168,7 @@ function CatalogView({toast}){
               <div className="grid2"><div className="field"><div className="lbl">Référence *</div><input className="inp" placeholder="TC21-01" value={form.ref} onChange={e=>setForm(f=>({...f,ref:e.target.value}))}/></div><div className="field"><div className="lbl">Code-barres EAN</div><input className="inp" placeholder="3701234560011" value={form.barcode} onChange={e=>setForm(f=>({...f,barcode:e.target.value}))}/></div></div>
               <div className="field"><div className="lbl">Nom du produit *</div><input className="inp" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))}/></div>
               <div className="grid2"><div className="field"><div className="lbl">Format / Poids</div><input className="inp" placeholder="250g" value={form.weight||""} onChange={e=>setForm(f=>({...f,weight:e.target.value}))}/></div><div className="field"><div className="lbl">DLC théorique (jours)</div><input className="inp" type="number" value={form.shelf_life_days||21} onChange={e=>setForm(f=>({...f,shelf_life_days:+e.target.value}))}/></div></div>
-              <div className="field"><div className="lbl">Catégorie</div><input className="inp" placeholder="Tortilla Classique" value={form.category||""} onChange={e=>setForm(f=>({...f,category:e.target.value}))}/></div>
+              <div className="grid2"><div className="field"><div className="lbl">Catégorie</div><input className="inp" placeholder="Tortilla Classique" value={form.category||""} onChange={e=>setForm(f=>({...f,category:e.target.value}))}/></div><div className="field"><div className="lbl">Prix unitaire (TND)</div><input className="inp" type="number" step="0.001" min="0" placeholder="0.000" value={form.unit_price||""} onChange={e=>setForm(f=>({...f,unit_price:e.target.value}))}/></div></div>
             </div>
             <div className="panel-footer"><button className="btn btn-neutral btn-sm" onClick={()=>setPanel(null)}>Annuler</button><button className="btn btn-acc btn-sm" onClick={save}><Ico n="chk" size={14} stroke="#fff"/>Sauvegarder</button></div>
           </div>
@@ -1515,10 +1281,15 @@ const ROLES = [
 function LoginPage(){
   const[loading,setLoading]=useState(null);
   const[err,setErr]=useState("");
+  const[showGMPrompt,setShowGMPrompt]=useState(false);
+  const[gmPw,setGmPw]=useState("");
+  const[gmErr,setGmErr]=useState("");
+  const[selectedRole,setSelectedRole]=useState(null);
+  const GM_PW = import.meta.env.VITE_GM_PASSWORD || "";
 
   const enter=async(role)=>{
     setLoading(role.id); setErr("");
-    // Connexion anonyme — aucun mot de passe requis
+    // Connexion anonyme — aucun mot de passe requis pour l'opérateur
     const{data,error}=await sb.auth.signInAnonymously();
     if(error){ setErr(error.message); setLoading(null); return; }
     // Enregistrer le rôle choisi dans user_profiles
@@ -1528,7 +1299,16 @@ function LoginPage(){
       role: role.id==="gm"?"gm":"operator",
     });
     setLoading(null);
+    setShowGMPrompt(false);
+    setGmPw(""); setGmErr(""); setSelectedRole(null);
     // onAuthStateChange dans App détecte la session automatiquement
+  };
+
+  const tryGm = ()=>{
+    setGmErr("");
+    if(!GM_PW){ setGmErr("Mot de passe GM non configuré. Ajoutez VITE_GM_PASSWORD dans .env"); return; }
+    if(gmPw===GM_PW){ if(selectedRole) enter(selectedRole); }
+    else setGmErr("Mot de passe incorrect");
   };
 
   return(
@@ -1542,12 +1322,12 @@ function LoginPage(){
         <div style={{width:"100%",maxWidth:420}}>
           <div style={{textAlign:"center",marginBottom:32}}>
             <div style={{fontSize:22,fontWeight:700,color:"var(--text)",marginBottom:6}}>Choisissez votre rôle</div>
-            <div style={{fontSize:13,color:"var(--muted)"}}>Appuyez pour entrer — aucun mot de passe</div>
+            <div style={{fontSize:13,color:"var(--muted)"}}>Appuyez pour entrer — mot de passe requis pour le Directeur</div>
           </div>
           {err&&<div style={{background:"var(--error-l)",border:"1px solid rgba(187,0,0,.2)",borderRadius:"var(--r)",padding:"10px 14px",fontSize:13,color:"var(--error)",marginBottom:20,fontWeight:600,textAlign:"center"}}>⚠️ {err}</div>}
           <div style={{display:"flex",flexDirection:"column",gap:16}}>
             {ROLES.map(role=>(
-              <button key={role.id} onClick={()=>enter(role)} disabled={!!loading}
+              <button key={role.id} onClick={()=>{if(role.id==="gm"){setSelectedRole(role);setShowGMPrompt(true);setGmPw("");setGmErr("");}else enter(role);}} disabled={!!loading}
                 style={{background:"var(--surf)",border:`2px solid ${loading===role.id?role.color:"var(--bord)"}`,borderRadius:"var(--r-lg)",padding:"20px 24px",cursor:"pointer",display:"flex",alignItems:"center",gap:18,textAlign:"left",boxShadow:"var(--sh)",transition:"all .15s",opacity:loading&&loading!==role.id?.5:1}}
                 onMouseEnter={e=>{e.currentTarget.style.borderColor=role.color;e.currentTarget.style.boxShadow="var(--sh-md)";}}
                 onMouseLeave={e=>{e.currentTarget.style.borderColor=loading===role.id?role.color:"var(--bord)";e.currentTarget.style.boxShadow="var(--sh)";}}>
@@ -1565,6 +1345,33 @@ function LoginPage(){
           <div style={{textAlign:"center",marginTop:28,fontSize:11,color:"var(--subtle)",fontFamily:"var(--mono)"}}>BT Food Industry · MF 1887237 G.A.M 000</div>
         </div>
       </div>
+
+      {showGMPrompt&&(
+        <div className="panel-overlay">
+          <div className="panel">
+            <div className="panel-header">
+              <div>
+                <div className="panel-title">Connexion Directeur</div>
+                <div className="panel-sub">Entrez le mot de passe du Directeur</div>
+              </div>
+              <button className="panel-close" onClick={()=>setShowGMPrompt(false)}><Ico n="x" size={16} stroke="#fff"/></button>
+            </div>
+            <div className="panel-body">
+              <div className="fs">
+                <div className="fs-hdr">🔒 Mot de passe</div>
+                <div className="fs-body">
+                  <div className="field"><input className="inp" type="password" value={gmPw} onChange={e=>setGmPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&tryGm()} placeholder="Mot de passe Directeur"/></div>
+                  {gmErr&&<div style={{marginTop:8,color:"var(--error)",fontWeight:700}}>⚠️ {gmErr}</div>}
+                </div>
+              </div>
+            </div>
+            <div className="panel-footer">
+              <button className="btn btn-neutral btn-sm" onClick={()=>setShowGMPrompt(false)}>Annuler</button>
+              <button className="btn btn-acc btn-sm" onClick={tryGm} disabled={loading===selectedRole?.id}>{loading===selectedRole?.id?"Connexion…":"Connexion"}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1595,7 +1402,14 @@ export default function App(){
   },[]);
 
   const loadProfile=async(uid)=>{
-    const{data:p}=await sb.from("user_profiles").select("*").eq("id",uid).single();
+    // attempt to fetch the profile; if it's not present yet (race after signup), retry briefly
+    let p = null;
+    for(let attempt=0; attempt<6; attempt++){
+      const res = await sb.from("user_profiles").select("*").eq("id",uid).single();
+      if(res?.data){ p = res.data; break; }
+      // small delay before retrying
+      await new Promise(r=>setTimeout(r,200));
+    }
     setProfile(p);
     // Load vendors + products + settings
     const[{data:v},{data:pr},{data:s}]=await Promise.all([
