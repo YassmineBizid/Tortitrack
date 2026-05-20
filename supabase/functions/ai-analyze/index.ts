@@ -42,7 +42,7 @@ serve(async (req) => {
 
     // Rôle
     const { data: profile } = await sb.from("user_profiles").select("role").eq("id", user.id).single();
-    if (!["operator","gm","admin"].includes(profile?.role))
+    if (!["operator","gm","admin","dg","production_manager","quality","logistics","sales","finance"].includes(profile?.role))
       return new Response(JSON.stringify({ error: "Accès refusé" }), { status: 403, headers: { ...CORS, "Content-Type": "application/json" } });
 
     // Rate limit
