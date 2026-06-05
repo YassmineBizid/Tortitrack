@@ -2,9 +2,15 @@ import { useState } from "react";
 import { sb } from "../supabaseClient";
 import { ROLES } from "../constants";
 import { Ico } from "../components/Ico";
+import { CSS } from "../styles";
 
 export function LoginPage() {
-  const GM_PW = import.meta.env.VITE_GM_PASSWORD || import.meta.env.VITE_DG_PASSWORD || "";
+  const GM_PW        = import.meta.env.VITE_GM_PASSWORD || import.meta.env.VITE_DG_PASSWORD || "";
+  const DEMO_ACCOUNTS = [
+    { label: "GM / Direction",  email: import.meta.env.VITE_DEMO_GM_EMAIL,       pass: import.meta.env.VITE_DEMO_GM_PASS       },
+    { label: "Opérateur",       email: import.meta.env.VITE_DEMO_OPERATOR_EMAIL,  pass: import.meta.env.VITE_DEMO_OPERATOR_PASS },
+  ].filter(d => d.email && d.pass);
+
   const [mode, setMode] = useState("login"); // "login" | "signup"
   const [loading, setLoading] = useState(false);
   const [globalMsg, setGlobalMsg] = useState({ type: "", text: "" });
@@ -40,6 +46,16 @@ export function LoginPage() {
     } finally { setLoading(false); }
   };
 
+  const doQuickLogin = async (email, pass) => {
+    setLoginErr(""); setLoading(true);
+    try {
+      const res = await sb.auth.signInWithPassword({ email, password: pass });
+      if (res?.error) { setLoginErr(res.error.message || "Compte démo introuvable — créez-le d'abord dans Supabase"); }
+    } catch (e) {
+      setLoginErr(e?.message || String(e));
+    } finally { setLoading(false); }
+  };
+
   const doSignup = async () => {
     setSignupErr("");
     if (!signupEmail || !signupPassword) { setSignupErr("Email et mot de passe requis"); return; }
@@ -62,7 +78,13 @@ export function LoginPage() {
         return;
       }
       if (res?.data?.user?.id) {
-        await sb.from("user_profiles").upsert({ id: res.data.user.id, full_name: signupFullName || signupEmail, role: signupRole });
+        const { error: upsertErr } = await sb.from("user_profiles").upsert({
+          id: res.data.user.id,
+          full_name: signupFullName || signupEmail,
+          email: signupEmail,
+          role: signupRole,
+        });
+        if (upsertErr) console.warn("user_profiles upsert:", upsertErr.message);
         setGlobalMsg({ type: "ok", text: "Compte créé — bienvenue !" });
       } else {
         switchMode("login");
@@ -96,6 +118,7 @@ export function LoginPage() {
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg)", display: "flex", flexDirection: "column" }}>
+      <style>{CSS}</style>
 
       {/* Shell */}
       <div className="shell">
@@ -188,6 +211,7 @@ export function LoginPage() {
                   >
                     {loading ? "Connexion…" : "Se connecter"}
                   </button>
+
                 </div>
 
               ) : (

@@ -1,323 +1,371 @@
 import { useState, useEffect } from "react";
-import { sb } from "./supabaseClient";
-import { CSS } from "./styles";
-import { Ico } from "./components/Ico";
-import { Toasts } from "./components/Toasts";
-import { DocFormPanel } from "./components/DocFormPanel";
-import { useToasts } from "./hooks/useToasts";
-import { HistoryView } from "./views/HistoryView";
-import { GMDashboard } from "./views/GMDashboard";
-import { CatalogView } from "./views/CatalogView";
-import { SettingsView } from "./views/SettingsView";
-import { LoginPage } from "./views/LoginPage";
-import { ProductionPage } from "./views/Production";
-import { StockPage } from "./views/Stock";
-import { QualiteView } from "./views/QualiteView";
-import { dbLotToJs } from "./lib/productionUtils";
-import { ROLES } from "./constants";
+import { LogOut } from "lucide-react";
+import { sb as supabase } from "./supabaseClient.js";
+import { LoginPage }      from "./views/LoginPage.jsx";
+import HomeView           from "./views/HomePage.jsx";
+import BLView             from "./views/BLView.jsx";
+import BRView             from "./views/BRView.jsx";
+import CommandesPFView    from "./views/CommandesPFView.jsx";
+import ClientsView        from "./views/ClientsView.jsx";
+import ProductionView     from "./views/ProductionView.jsx";
+import PlanningView       from "./views/PlanningView.jsx";
+import AchatsView         from "./views/AchatsView.jsx";
+import UsersView          from "./views/UsersView.jsx";
+import FournisseursView   from "./views/FournisseursView.jsx";
+import QualiteNewView     from "./views/QualiteNewView.jsx";
+import StockView          from "./views/StockView.jsx";
+import AlertsView         from "./views/AlertsView.jsx";
+import AuditView          from "./views/AuditView.jsx";
+import RecallView         from "./views/RecallView.jsx";
+import InventaireView     from "./views/InventaireView.jsx";
+import { CatalogView }    from "./views/CatalogView.jsx";
+import DemandeChargView   from "./views/DemandeChargementView.jsx";
+import PerformanceView    from "./views/PerformanceView.jsx";
+import FacturationView    from "./views/FacturationView.jsx";
+import EncaissementView   from "./views/EncaissementView.jsx";
+import FinanceDashboard   from "./views/FinanceDashboard.jsx";
+import StockCamionView    from "./views/StockCamionView.jsx";
+import ControleJourneeView from "./views/ControleJourneeView.jsx";
+import NotificationsView  from "./views/NotificationsView.jsx";
+import PrixView           from "./views/PrixView.jsx";
+import RHView             from "./views/RHView.jsx";
+import AIView             from "./views/AIView.jsx";
+import TraitesPage from "./views/traites.jsx";
+import ClotureTourneePage from "./views/cloturetournee.jsx";
+import { SettingsView }   from "./views/SettingsView.jsx";
+import { useAuditLog }        from "./hooks/useAuditLog.js";
+import { useNotifications }   from "./hooks/useNotifications.js";
+import { useSupabaseData }    from "./hooks/useSupabaseData.js";
+import ReceptionFournisseurPage from "./views/RecepMP.jsx";
+import GestionCommercialeHub from "./views/Visite.jsx";
+import ObjectifsPage from "./views/ObjView.jsx";
+import RequestsView from "./views/PersonnelView.jsx";
 
-const EXTRA_CSS = `
-@media print{.shell,.sidebar,.mobile-nav,.panel-overlay,.toast-wrap,.doc-fab{display:none!important}.content{overflow:visible!important}}
-.doc-fab{position:fixed;bottom:20px;right:20px;z-index:150;display:flex;flex-direction:column;align-items:flex-end;gap:10px}
-.doc-fab-btn{width:52px;height:52px;border-radius:50%;background:var(--shell);color:#fff;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:var(--sh-lg);font-size:20px;transition:transform .15s}
-.doc-fab-btn:hover{transform:scale(1.08)}
-.doc-fab-menu{background:var(--surf);border:1px solid var(--bord);border-radius:var(--r-lg);box-shadow:var(--sh-lg);min-width:280px;overflow:hidden}
-.doc-fab-header{background:var(--shell);padding:10px 14px;display:flex;align-items:center;justify-content:space-between}
-.doc-fab-item{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--surf3);cursor:pointer;transition:background .12s}
-.doc-fab-item:last-child{border-bottom:none}
-.doc-fab-item:hover{background:var(--surf2)}
-.photo-steps{display:flex;gap:0;margin-bottom:16px;border:1px solid var(--bord);border-radius:var(--r-md);overflow:hidden}
-.photo-step{flex:1;padding:10px 12px;text-align:center;cursor:pointer;transition:all .15s;border-right:1px solid var(--bord);font-size:12px;font-weight:600}
-.photo-step:last-child{border-right:none}
-.photo-step.active{background:var(--acc);color:#fff}
-.photo-step.done{background:var(--success-l);color:var(--success)}
-.photo-step.idle{background:var(--surf2);color:var(--muted)}
-.ml-result{border:2px solid var(--acc);border-radius:var(--r-md);padding:14px;background:linear-gradient(135deg,#f8fbff,#f0f7ff);margin-bottom:14px}
-.ml-bar{height:6px;background:var(--surf3);border-radius:3px;overflow:hidden;margin-top:4px}
-.ml-bar-fill{height:100%;border-radius:3px;background:var(--acc);transition:width .5s}
-.confidence-high{color:var(--success)}.confidence-med{color:var(--warn)}.confidence-low{color:var(--error)}
-.export-btn{background:var(--success);color:#fff;border:none;border-radius:var(--r);padding:7px 14px;font-size:12px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
-.export-btn:hover{opacity:.9}
-.photo-cloud-link{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--acc);text-decoration:none;margin-top:4px}
-.photo-cloud-link:hover{text-decoration:underline}
-.photo-grid{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
-.photo-item{position:relative;border-radius:var(--r-md);overflow:hidden;border:1px solid var(--bord)}
-.photo-item img{width:80px;height:80px;object-fit:cover;display:block}
-.photo-item-overlay{position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,.55);padding:3px 4px;font-size:9px;color:#fff;text-align:center}
-.notif-badge{position:absolute;top:-4px;right:-4px;width:18px;height:18px;border-radius:50%;background:var(--error);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;border:2px solid var(--shell)}
-`;
+import {
+  initLots, initBLs, initBRs, initCPF, initCMP, initAlerts,
+  initFactures, initEncaissements, initStockCamion,
+  CLIENTS_DATA, ARTS, AUDIT_INIT, QC_INIT, INVENTORY_INIT,
+} from "./data/demoData.js";
+
+// ── Role mapping: DB single-role → app roles array ────────────────
+const ROLE_MAP = {
+  dg:                 ["dg","admin"],
+  gm:                 ["dg","admin"],
+  admin:              ["dg","admin"],
+  production_manager: ["chef_usine"],
+  chef_usine:         ["chef_usine"],
+  quality:            ["quality"],
+  logistics:          ["logistics"],
+  sales:              ["commercial"],
+  commercial:         ["commercial"],
+  dir_commercial:     ["dir_commercial","commercial"],
+  chef_commercial:    ["chef_commercial","commercial"],
+  finance:            ["finance"],
+  acheteur:           ["acheteur"],
+  chef_rh:            ["chef_rh","agent_rh"],
+  agent_rh:           ["agent_rh"],
+  operator:           ["operator"],
+};
+
+const profileToUser = (authUser, profile) => ({
+  id:    authUser.id,
+  email: authUser.email,
+  nom:   profile?.full_name || authUser.email?.split("@")[0] || "Utilisateur",
+  roles: ROLE_MAP[profile?.role] || [profile?.role || "operator"],
+  role:  profile?.role || "operator",
+});
+
+
+
+// ── Navigation ─────────────────────────────────────────────────────
+const NAV_GROUPS = [
+  { group:"Accueil", icon:"🏠", items:[
+    { id:"home",          label:"Tableau de bord",   icon:"🏠", roles:[] },
+    { id:"objectifs", label:"Objectifs", icon:"🎯", roles:["dg","finance","dir_commercial"] },
+    { id:"notifications", label:"Notifications", icon:"🔔", roles:[] },
+    { id:"requests", label:"Personnel", icon:"👥", roles:[] },
+  ]},
+  { group:"Commerce", icon:"🛒", items:[
+    { id:"cpf",           label:"Commandes PF",       icon:"📋", roles:[] },
+    { id:"bl",            label:"Bons de Livraison",  icon:"🚚", roles:[] },
+    { id:"br",            label:"Bons de Retour",     icon:"↩",  roles:[] },
+    { id:"clients",       label:"Clients",            icon:"🤝", roles:[] },
+    { id:"performance",   label:"Performance",        icon:"📊", roles:["dg","finance","dir_commercial","chef_commercial","commercial"] },
+    { id:"demande_chargement", label:"Demande Chargement", icon:"🚛", roles:[] },
+    { id:"gestion_commerciale", label:"Visite", icon:"🛒", roles:[] },
+  ]},
+  { group:"Production", icon:"🏭", items:[
+    { id:"production",         label:"Production",         icon:"⚙",  roles:["dg","chef_usine","operator"] },
+    { id:"planning",           label:"Planning",           icon:"📅", roles:["dg","chef_usine","logistics"] },
+    
+  ]},
+  { group:"Achats", icon:"🛍", items:[
+    { id:"achats",       label:"Achats MP",    icon:"📦", roles:["dg","acheteur"] },
+    { id:"fournisseurs", label:"Fournisseurs", icon:"🏢", roles:["dg","acheteur"] },
+    { id:"reception_mp", label:"Réception MP",    icon:"📦", roles:["dg","acheteur","quality"] },
+  ]},
+  { group:"Qualité", icon:"🔬", items:[
+    { id:"qualite",    label:"Contrôle Qualité", icon:"🔬", roles:["dg","quality","chef_usine"] },
+    { id:"recall",     label:"Rappels Produits", icon:"⚠",  roles:["dg","quality","chef_usine"] },
+    { id:"inventaire", label:"Inventaire",       icon:"📊", roles:["dg","logistics","chef_usine"] },
+    { id:"alerts",     label:"Alertes",          icon:"🔔", roles:["dg","quality","chef_usine"] },
+  ]},
+  { group:"Stock", icon:"📦", items:[
+    { id:"stock", label:"Stock PF", icon:"📦", roles:[] },
+  ]},
+  { group:"Finance", icon:"💰", items:[
+    { id:"facturation",  label:"Facturation",       icon:"📄", roles:[] },
+    { id:"encaissement", label:"Encaissements",     icon:"💵", roles:[] },
+    { id:"finance_dash", label:"Dashboard Finance", icon:"💹", roles:["dg","finance"] },
+    { id:"traites",      label:"Traites & Échéances", icon:"🗒", roles:["dg","finance"] },
+    { id:"prix",         label:"Tarifs & Prix",     icon:"🏷",  roles:[] },
+    { id:"catalog", label:"Catalog",       icon:"📊", roles:[] },
+    { id:"cloture_tournee", label:"Clôture Tournée", icon:"✅", roles:["dg","finance","dir_commercial"] },
+  ]},
+  { group:"Opérations", icon:"🗺", items:[
+    { id:"stock_camion",     label:"Stock Camion",      icon:"🚐", roles:[] },
+    { id:"controle_journee", label:"Contrôle Journée",  icon:"📋", roles:["dg","finance","dir_commercial"] },
+    { id:"rh",               label:"Ressources Humaines",icon:"👥",roles:["dg","chef_rh","agent_rh"] },
+  ]},
+  { group:"Admin", icon:"⚙", items:[
+    { id:"users",         label:"Utilisateurs",  icon:"👤", roles:["dg","admin"] },
+    { id:"audit",         label:"Journal Audit", icon:"📜", roles:["dg","admin"] },
+  ]},
+  { group:"Outils", icon:"🛠", items:[
+    { id:"ai",       label:"Assistant IA", icon:"🤖", roles:[] },
+    { id:"settings", label:"Paramètres",   icon:"⚙",  roles:[] },
+  ]},
+];
 
 export default function App() {
-  const [user, setUser] = useState(null);
-  const [profile, setProfile] = useState(null);
-  const [page, setPage] = useState("home");
-  const [docPanel, setDocPanel] = useState(null);
-  const [vendors, setVendors] = useState([]);
-  const [products, setProducts] = useState([]);
-  const [lots, setLots] = useState([]);
-  const [gmEmail, setGmEmail] = useState("direction@btfood.tn");
-  const [toasts, addToast] = useToasts();
-  const [loading, setLoading] = useState(true);
+  const [user,     setUser]    = useState(null);
+  const [authLoad, setAuthLoad]= useState(true);   // true while restoring session
+  const [page,     setPage]    = useState("home");
+  const [sideOpen, setSideOpen]= useState(true);
+  const [receptions, setReceptions] = useState([]);
 
+  // ── Données Supabase (fallback demo si table absente) ─────────────
+  const sbData = useSupabaseData({
+    arts:          ARTS,
+    lots:          initLots(),
+    bls:           initBLs(),
+    brs:           initBRs(),
+    cpf:           initCPF(),
+    cmp:           initCMP(),
+    clients:       CLIENTS_DATA,
+    alerts:        initAlerts(),
+    factures:      initFactures(),
+    encaissements: initEncaissements(),
+    stockCamion:   initStockCamion(),
+    traites:       [],
+  });
+  const {
+    arts, setArts,
+    lots, setLots, bls, setBls, brs, setBrs,
+    clients, setClients, cpf, setCpf, cmp, setCmp,
+    factures, setFactures, encaissements, setEncaissements,
+    stockCamion, setStockCamion, alerts, setAlerts,
+    fournisseurs, setFournisseurs,
+    traites, setTraites,
+    reload: reloadSupa,
+  } = sbData;
+
+  const { entries:auditLogs, addAudit }   = useAuditLog(AUDIT_INIT);
+  const { notifications, unreadCount, markRead, markAllRead } = useNotifications();
+
+  // ── Load user_profiles row for an auth user ─────────────────────
+  const loadProfile = async (authUser) => {
+    try {
+      const { data } = await supabase
+        .from("user_profiles")
+        .select("id, full_name, email, role, is_active")
+        .eq("id", authUser.id)
+        .single();
+      return data;
+    } catch {
+      return null;
+    }
+  };
+
+  // ── Restore session on mount + listen for auth changes ──────────
   useEffect(() => {
-    sb.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) { setUser(session.user); loadProfile(session.user.id); }
-      else setLoading(false);
+    // Safety timeout: réduit à 3 s pour ne pas bloquer trop longtemps
+    const fallback = setTimeout(() => setAuthLoad(false), 3000);
+
+    supabase.auth.getSession()
+      .then(({ data: { session } }) => {
+        if (session?.user) {
+          // Affichage immédiat via les métadonnées du token JWT (aucun appel DB)
+          setUser(profileToUser(session.user, session.user.user_metadata));
+          // Chargement du profil complet en arrière-plan
+          loadProfile(session.user).then(profile => {
+            if (profile) setUser(profileToUser(session.user, profile));
+          });
+        }
+      })
+      .catch(() => { /* network error – show login */ })
+      .finally(() => { clearTimeout(fallback); setAuthLoad(false); });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_IN" && session?.user) {
+        // Entrée dans l'app immédiate, profil DB en arrière-plan
+        setUser(profileToUser(session.user, session.user.user_metadata));
+        loadProfile(session.user).then(profile => {
+          if (profile) setUser(profileToUser(session.user, profile));
+        });
+      } else if (event === "SIGNED_OUT") {
+        setUser(null);
+        setPage("home");
+      }
     });
-    const { data: { subscription } } = sb.auth.onAuthStateChange((_ev, session) => {
-      if (session?.user) { setUser(session.user); loadProfile(session.user.id); }
-      else { setUser(null); setProfile(null); setLoading(false); }
-    });
-    return () => subscription.unsubscribe();
+    return () => { clearTimeout(fallback); subscription.unsubscribe(); };
   }, []);
 
-  const loadProfile = async (uid) => {
-    let p = null;
-    for (let attempt = 0; attempt < 6; attempt++) {
-      const res = await sb.from("user_profiles").select("*").eq("id", uid).single();
-      if (res?.data) { p = res.data; break; }
-      await new Promise(r => setTimeout(r, 200));
-    }
-    setProfile(p);
-    const [{ data: v }, { data: pr }, { data: s }, { data: lotsData }] = await Promise.all([
-      sb.from("vendors").select("*").eq("is_active", true).order("name"),
-      sb.from("products").select("*").eq("is_active", true).order("ref"),
-      sb.from("app_settings").select("key,value"),
-      sb.from("production_lots").select("*").order("created_at", { ascending: false }),
-    ]);
-    setVendors(v || []); setProducts(pr || []);
-    setLots((lotsData || []).map(dbLotToJs));
-    const emailSetting = s?.find(x => x.key === "gm_email");
-    if (emailSetting) setGmEmail(emailSetting.value);
-    setLoading(false);
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    // onAuthStateChange SIGNED_OUT will clear user state
   };
 
-  const logout = async () => {
-    await sb.auth.signOut();
-    setUser(null); setProfile(null); setPage("home");
+  // ── Render guards ────────────────────────────────────────────────
+  if (authLoad) return (
+    <div className="min-h-screen bg-slate-900 flex items-center justify-center gap-3 text-white">
+      <div className="w-8 h-8 border-2 border-blue-400 border-t-transparent rounded-full animate-spin"/>
+      <span className="text-sm font-medium">Chargement…</span>
+    </div>
+  );
+
+  if (!user) return <LoginPage />;
+
+
+  // Map legacy page IDs (used in HomePage) → current router IDs
+  const navigate = (id) => {
+    const MAP = {
+      commandes_pf:  "cpf",
+      factures:      "facturation",
+      chargement:    "demande_chargement",
+      cloture:       "controle_journee",
+      bls:           "bl",
+      brs:           "br",
+      history:       "bl",
+      qualite:       "qualite",
+      stock_camion:  "stock_camion",
+    };
+    setPage(MAP[id] || id);
   };
 
-  const reload = () => { if (user) loadProfile(user.id); };
+  const userRoles = user.roles || [];
+  const canSee = (item) => !item.roles?.length || item.roles.some(r => userRoles.includes(r));
 
-  if (loading) return (
-    <>
-      <style>{CSS}</style>
-      <style>{EXTRA_CSS}</style>
-      <div style={{ minHeight: "100vh", background: "var(--bg)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--muted)", fontSize: 14, gap: 10 }}>
-        <span style={{ fontSize: 20 }}>⚙️</span>Chargement…
-      </div>
-    </>
+  const p = { user, addAudit };
+
+  const renderPage = () => {
+    switch (page) {
+      case "home":              return <HomeView {...p} data={{ lots, bls, brs, cpf, cmp, qcControls: QC_INIT, inventory: INVENTORY_INIT }} alerts={alerts} onNavigate={navigate} factures={factures} arts={arts}/>;
+      case "cpf":               return <CommandesPFView {...p} cpf={cpf} setCpf={setCpf} lots={lots} arts={arts} clients={clients}/>;
+      case "bl":                return <BLView {...p} bls={bls} setBls={setBls} lots={lots} setLots={setLots} arts={arts} clients={clients} onSaved={() => reloadSupa(["delivery_orders","production_lots"])}/>;
+      case "br":                return <BRView {...p} brs={brs} setBrs={setBrs} lots={lots} setLots={setLots} arts={arts} clients={clients} onSaved={() => reloadSupa(["return_orders","production_lots"])}/>;
+      case "clients":           return <ClientsView {...p} clients={clients} setClients={setClients}/>;
+      case "performance":       return <PerformanceView {...p}/>;
+      case "production":        return <ProductionView {...p} lots={lots} setLots={setLots} arts={arts} onSaved={() => reloadSupa(["production_lots"])}/>;
+      case "planning":          return <PlanningView {...p}/>;
+      case "demande_chargement":return <DemandeChargView {...p} cpf={cpf} lots={lots} arts={arts} onSaved={() => reloadSupa(["stock_camion"])}/>;
+      case "achats":            return <AchatsView {...p} cmp={cmp} setCmp={setCmp} fournisseurs={fournisseurs} onSaved={() => reloadSupa(["commandes_mp"])}/>;
+      case "fournisseurs":      return <FournisseursView {...p} fournisseurs={fournisseurs} setFournisseurs={setFournisseurs} onSaved={() => reloadSupa(["fournisseurs"])}/>;
+      case "qualite":           return <QualiteNewView {...p} lots={lots} setLots={setLots}/>;
+      case "recall":            return <RecallView {...p} lots={lots}/>;
+      case "inventaire":        return <InventaireView {...p} lots={lots}/>;
+      case "cloture_tournee":   return <ClotureTourneePage {...p} user={user} factures={factures} brs={brs} lots={lots} addAudit={addAudit}/>;
+      case "alerts":            return <AlertsView {...p} alerts={alerts} setAlerts={setAlerts}/>;
+      case "stock":             return <StockView {...p} lots={lots} setLots={setLots} arts={arts}/>;
+      case "catalog":           return <CatalogView toast={() => {}}/>;
+      case "facturation":       return <FacturationView {...p} factures={factures} setFactures={setFactures} lots={lots} clients={clients} onSaved={() => reloadSupa(["factures"])}/>;
+      case "encaissement":      return <EncaissementView {...p} encaissements={encaissements} setEncaissements={setEncaissements} factures={factures}/>;
+      case "finance_dash":      return <FinanceDashboard factures={factures} encaissements={encaissements} bls={bls}/>;
+      case "prix":              return <PrixView {...p} arts={arts} onSaved={() => reloadSupa(["products"])}/>;
+      case "stock_camion":      return <StockCamionView {...p} stockCamion={stockCamion} setStockCamion={setStockCamion} onSaved={() => reloadSupa(["stock_camion"])}/>;
+      case "controle_journee":  return <ControleJourneeView {...p} stockCamion={stockCamion} factures={factures} encaissements={encaissements}/>;
+      case "rh":                return <RHView {...p}/>;
+      case "users":             return <UsersView {...p}/>;
+      case "audit":             return <AuditView auditLogs={auditLogs}/>;
+      case "notifications":     return <NotificationsView notifications={notifications} markRead={markRead} markAllRead={markAllRead}/>;
+      case "ai":                return <AIView lots={lots} alerts={alerts}/>;
+      case "requests":          return <RequestsView {...p} requests={[]} setRequests={() => {}}/>;
+      case "traites":           return <TraitesPage {...p} traites={traites} setTraites={setTraites} factures={factures} bls={bls} clients={clients} fournisseurs={fournisseurs} addNotif={() => {}} onSaved={() => reloadSupa(["traites"])}/>
+      case "settings":          return <SettingsView user={user} toast={() => {}}/>;  
+      case "objectifs":         return <ObjectifsPage {...p} objectifsDG={[]} setObjectifsDG={() => {}} objectifsDept={[]} setObjectifsDept={() => {}} objectifsInt={[]} setObjectifsInt={() => {}}/>;
+      case "reception_mp":
+      case "receptions":         return <ReceptionFournisseurPage user={user} receptions={receptions} setReceptions={setReceptions} cmp={cmp} addAudit={addAudit}/>;
+      case "gestion_commerciale": 
+  return (
+    <GestionCommercialeHub 
+      {...p} 
+      arts={arts} 
+      clients={clients} 
+      bls={bls} 
+      setBls={setBls} 
+      lots={lots} 
+      setLots={setLots} 
+      brs={brs}                 
+      setBrs={setBrs}          
+      factures={factures}       
+      setFactures={setFactures} 
+      onSaved={() => reloadSupa(["delivery_orders", "return_orders", "factures", "production_lots"])} 
+    />
   );
-
-  if (!user) return (
-    <>
-      <style>{CSS}</style>
-      <style>{EXTRA_CSS}</style>
-      <LoginPage />
-    </>
-  );
-
-  const isGM = ["dg","gm","admin"].includes(profile?.role);
-
-  const roleLabel = ROLES.find(r => r.id === profile?.role)?.label || profile?.role || "Utilisateur";
-
-  const navItems = (() => {
-    switch (profile?.role) {
-      case "dg":
-      case "gm":
-      case "admin":
-        return [
-          { id: "home", label: "Dashboard", icon: "dash" },
-          { id: "production", label: "Production", icon: "prod" },
-          { id: "stock", label: "Stock PF", icon: "layers" },
-          { id: "bl", label: "Bons Livraison", icon: "truck" },
-          { id: "br", label: "Bons Retour", icon: "ret" },
-          { id: "catalog", label: "Catalogue", icon: "box" },
-          { id: "qualite", label: "Qualité", icon: "shield" },
-          { id: "settings", label: "Configuration", icon: "settings" },
-        ];
-      case "production_manager":
-        return [
-          { id: "home", label: "Accueil", icon: "dash" },
-          { id: "production", label: "Production", icon: "prod" },
-          { id: "stock", label: "Lots / Stock", icon: "layers" },
-        ];
-      case "quality":
-        return [
-          { id: "home", label: "Accueil", icon: "dash" },
-          { id: "qualite", label: "Qualité", icon: "shield" },
-          { id: "br", label: "Bons Retour", icon: "ret" },
-        ];
-      case "logistics":
-        return [
-          { id: "home", label: "Accueil", icon: "dash" },
-          { id: "bl", label: "Bons Livraison", icon: "truck" },
-          { id: "br", label: "Bons Retour", icon: "ret" },
-          { id: "stock", label: "Stock PF", icon: "layers" },
-        ];
-      case "sales":
-        return [
-          { id: "home", label: "Accueil", icon: "dash" },
-          { id: "bl", label: "Bons Livraison", icon: "truck" },
-          { id: "catalog", label: "Catalogue", icon: "box" },
-        ];
-      case "finance":
-        return [
-          { id: "home", label: "Rapports", icon: "dash" },
-        ];
-      case "operator":
-      default:
-        return [
-          { id: "home", label: "Accueil", icon: "home" },
-          { id: "bl", label: "Hist. BL", icon: "truck" },
-          { id: "br", label: "Hist. BR", icon: "ret" },
-          { id: "settings", label: "Config", icon: "settings" },
-        ];
+      default:                  return <HomeView {...p} lots={lots} bls={bls} factures={factures}/>;
     }
-  })();
-
-  const renderContent = () => {
-    if (page === "home") {
-      if (isGM) return <GMDashboard lots={lots} alerts={[]} />;
-      return (
-        <div>
-          <div className="content-header">
-            <div>
-              <div className="content-title">Tableau de bord Opérateur</div>
-              <div className="content-sub">{new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}</div>
-            </div>
-          </div>
-          <div className="content-body">
-            <div className="tiles">
-              <div className="tile" onClick={() => setDocPanel("BL")} style={{ cursor: "pointer" }}>
-                <div className="tile-stripe" style={{ background: "var(--acc)" }} />
-                <div className="tile-icon">🚛</div>
-                <div className="tile-lbl">Nouveau Bon de Livraison</div>
-                <div className="tile-sub">Photographier + IA + Valider</div>
-              </div>
-              <div className="tile" onClick={() => setDocPanel("BR")} style={{ cursor: "pointer" }}>
-                <div className="tile-stripe" style={{ background: "var(--error)" }} />
-                <div className="tile-icon">↩️</div>
-                <div className="tile-lbl">Nouveau Bon de Retour</div>
-                <div className="tile-sub">Photo + IA cause + Valider</div>
-              </div>
-              <div className="tile" onClick={() => setPage("bl")}>
-                <div className="tile-stripe" style={{ background: "var(--acc)" }} />
-                <div className="tile-icon">📋</div>
-                <div className="tile-lbl">Historique BL</div>
-                <div className="tile-sub">Voir, imprimer, envoyer</div>
-              </div>
-              <div className="tile" onClick={() => setPage("br")}>
-                <div className="tile-stripe" style={{ background: "var(--error)" }} />
-                <div className="tile-icon">📁</div>
-                <div className="tile-lbl">Historique BR</div>
-                <div className="tile-sub">Voir, imprimer, envoyer</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      );
-    }
-    if (page === "bl") return <HistoryView type="BL" vendors={vendors} gmEmail={gmEmail} toast={addToast} />;
-    if (page === "br") return <HistoryView type="BR" vendors={vendors} gmEmail={gmEmail} toast={addToast} />;
-    if (page === "catalog") return <CatalogView toast={addToast} />;
-    if (page === "settings") return <SettingsView user={user} toast={addToast} />;
-    if (page === "production") return <ProductionPage lots={lots} setLots={setLots} bls={[]} articles={products} />;
-    if (page === "stock") return <StockPage lots={lots} setLots={setLots} articles={products} />;
-    if (page === "qualite") return <QualiteView toast={addToast} />;
   };
 
   return (
-    <>
-      <style>{CSS}</style>
-      <style>{EXTRA_CSS}</style>
-      <div className="web-app">
-        <div className="shell">
-          <div className="shell-logo">
-            <svg viewBox="0 0 24 24"><path d="M1 3h15v13H1z M16 8h4l3 3v5h-7V8z" /></svg>
-          </div>
-          <div className="shell-title">Module Sortie &amp; Retour PF</div>
-          <div className="shell-sep" />
-          <div className="shell-context">BT Food Industry · {roleLabel}</div>
-          <div className="shell-right">
-            {!isGM && (
-              <div className="shell-quick-btns" style={{ display: "flex", gap: 8 }}>
-                <button className="shell-btn" onClick={() => setDocPanel("BL")}>+ Nouveau BL</button>
-                <button className="shell-btn" style={{ background: "rgba(192,57,43,.4)", color: "#fff" }} onClick={() => setDocPanel("BR")}>+ Nouveau BR</button>
-              </div>
-            )}
-            {!isGM && page !== "home" && (
-              <button className="shell-btn" onClick={() => setPage("home")} title="Accueil">
-                <Ico n="home" size={14} stroke="rgba(255,255,255,.85)" /> Accueil
-              </button>
-            )}
-            <div className="shell-user">
-              <div className="shell-avatar">{(user.email || "?").slice(0, 2).toUpperCase()}</div>
-            </div>
-            <button className="shell-btn" onClick={logout} title="Déconnexion">
-              <Ico n="logout" size={15} stroke="rgba(255,255,255,.75)" />
-            </button>
-          </div>
+    <div className="flex h-screen bg-gray-50 overflow-hidden">
+      {/* ── Sidebar ──────────────────────────────────────────── */}
+      <aside className={`flex-shrink-0 bg-slate-900 text-white flex flex-col transition-all duration-200 ${sideOpen?"w-56":"w-14"} overflow-hidden`}>
+        <div className="flex items-center gap-2 px-3 py-4 border-b border-slate-700">
+          <div className="w-8 h-8 rounded-xl bg-blue-600 flex items-center justify-center font-black text-sm flex-shrink-0">🌯</div>
+          {sideOpen && <div><div className="font-black text-sm leading-none">TORTITRACK</div><div className="text-xs text-slate-400 mt-0.5">ERP · v2.0</div></div>}
         </div>
-
-        <div className="web-body">
-          <div className="sidebar">
-            <div className="sidebar-section">
-              <div className="sidebar-label">Navigation</div>
-              {navItems.map(n => (
-                <div key={n.id} className={`sidebar-item ${page === n.id ? "active" : ""}`} onClick={() => setPage(n.id)}>
-                  <Ico n={n.icon} size={16} />{n.label}
-                </div>
-              ))}
-            </div>
-            {!isGM && (
-              <div className="sidebar-section" style={{ borderTop: "1px solid var(--bord)" }}>
-                <div className="sidebar-label">Actions rapides</div>
-                <div className="sidebar-item" onClick={() => setDocPanel("BL")} style={{ color: "var(--acc)" }}>
-                  <Ico n="plus" size={16} />Nouveau BL
-                </div>
-                <div className="sidebar-item" onClick={() => setDocPanel("BR")} style={{ color: "var(--error)" }}>
-                  <Ico n="plus" size={16} />Nouveau BR
-                </div>
+        <nav className="flex-1 overflow-y-auto py-2">
+          {NAV_GROUPS.map(group => {
+            const vis = group.items.filter(canSee);
+            if (!vis.length) return null;
+            return (
+              <div key={group.group} className="mb-1">
+                {sideOpen && <div className="px-3 py-1 text-xs font-bold text-slate-500 uppercase tracking-widest">{group.icon} {group.group}</div>}
+                {vis.map(item => (
+                  <button key={item.id} onClick={() => setPage(item.id)} title={!sideOpen?item.label:undefined}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 text-left text-xs font-medium transition-colors rounded-lg mx-1 my-0.5 ${page===item.id?"bg-blue-600 text-white":"text-slate-300 hover:bg-slate-800 hover:text-white"}`}>
+                    <span className="text-sm flex-shrink-0">{item.icon}</span>
+                    {sideOpen && <span className="truncate">{item.label}</span>}
+                    {sideOpen && item.id==="notifications" && unreadCount>0 && (
+                      <span className="ml-auto bg-red-500 text-white text-xs rounded-full px-1.5 py-0.5 font-bold">{unreadCount}</span>
+                    )}
+                  </button>
+                ))}
               </div>
-            )}
-            <div className="sidebar-footer">
-              <div style={{ fontSize: 11, color: "var(--muted)", fontFamily: "var(--mono)" }}>Developped by YBAK Solutions</div>
-              <div style={{ fontSize: 10, color: "var(--subtle)" }}>ELKATEB GROUP - 2026</div>
+            );
+          })}
+        </nav>
+        <div className="border-t border-slate-700 p-2">
+          {sideOpen ? (
+            <div className="flex items-center gap-2 px-1 py-1">
+              <div className="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center text-xs font-black flex-shrink-0">{user.nom?.[0]||"?"}</div>
+              <div className="flex-1 min-w-0"><div className="text-xs font-bold truncate">{user.nom}</div><div className="text-xs text-slate-400 truncate">{userRoles.join(", ")}</div></div>
+              <button onClick={handleLogout} title="Déconnexion" className="text-slate-400 hover:text-red-400 text-xs px-1"> <LogOut size={20} /></button>
             </div>
-          </div>
-          <div className="content">{renderContent()}</div>
-        </div>
-
-        <div className="mobile-nav">
-          <div className="mob-nav-tabs">
-            {navItems.map(n => (
-              <div key={n.id} className={`mob-tab ${page === n.id ? "on" : ""}`} onClick={() => setPage(n.id)}>
-                <Ico n={n.icon} size={20} /><span>{n.label}</span>
-              </div>
-            ))}
-          </div>
-          {!isGM && (
-            <div className="mob-actions">
-              <button className="mob-act mob-act-bl" onClick={() => setDocPanel("BL")}>+ Nouveau BL</button>
-              <button className="mob-act mob-act-br" onClick={() => setDocPanel("BR")}>+ Nouveau BR</button>
-            </div>
+          ) : (
+            //<button onClick={handleLogout} className="w-full flex justify-center py-2 text-slate-400 hover:text-red-400" title="Déconnexion">🚪</button>
+            <button onClick={handleLogout} className="w-full flex justify-center py-2 text-slate-400 hover:text-red-400" title="Déconnexion"> <LogOut size={20} /> </button>
           )}
+          <button onClick={() => setSideOpen(o => !o)} className="w-full flex justify-center py-3 text-slate-500 hover:text-white text-lg mt-1">{sideOpen?"◀":"▶"}</button>
         </div>
-      </div>
+      </aside>
 
-      {docPanel && (
-        <DocFormPanel
-          type={docPanel}
-          vendors={vendors}
-          products={products}
-          isGM={isGM}
-          onSave={reload}
-          onClose={() => setDocPanel(null)}
-          toast={addToast}
-        />
-      )}
-      <Toasts toasts={toasts} />
-    </>
+      {/* ── Main ─────────────────────────────────────────────── */}
+      <main className="flex-1 overflow-y-auto">
+        <div className="max-w-screen-xl mx-auto px-4 py-5">
+          {renderPage()}
+        </div>
+      </main>
+    </div>
   );
 }

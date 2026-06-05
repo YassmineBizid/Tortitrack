@@ -20,6 +20,7 @@ export function Ico({n, size=16, stroke="currentColor"}) {
     prod:"M2 20h20 M5 20V10l7-7 7 7v10 M9 20v-5h6v5",
     layers:"M12 2L2 7l10 5 10-5-10-5z M2 17l10 5 10-5 M2 12l10 5 10-5",
     shield:"M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z M9 12l2 2 4-4",
+    invoice:"M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8",
   };
   const segs=(P[n]||"").split(" M ").map((s,i)=>i===0?s:"M "+s);
   return (
