@@ -5,25 +5,53 @@ import { sb } from "../supabaseClient.js";
 
 export default function DemandeChargementView({ user, cpf, lots = [], addAudit, arts: artsProp = [], onSaved }) {
   const artsList = artsProp.length > 0 ? artsProp : ARTS;
-  const [form, setForm] = useState({ date: TODAY, vehiculeId: "", conducteurId: "", conducteur: "", items: [], notes: "" });
-  const [vendors, setVendors] = useState([]);
+  
+  // 🕒 Génération des créneaux horaires de 08:00 à 17:00 toutes les 15 minutes
+  const generateTimeSlots = () => {
+    const slots = [];
+    for (let hour = 8; hour <= 17; hour++) {
+      for (let min = 0; min < 60; min += 15) {
+        if (hour === 17 && min > 0) break; 
+        const hStr = String(hour).padStart(2, "0");
+        const mStr = String(min).padStart(2, "0");
+        slots.push(`${hStr}:${mStr}`);
+      }
+    }
+    return slots;
+  };
+
+  const timeSlots = generateTimeSlots();
+
+  const [form, setForm] = useState({ date: TODAY, heure: "08:00", vehiculeId: "", conducteurId: "", conducteur: "", items: [], notes: "" });
+  const [vendors, setVendors] = useState([]); // Contiendra désormais les profils de user_profiles (commerciaux)
   const [fleet, setFleet] = useState([]);
   const [showIA, setShowIA] = useState(false);
   const [saved, setSaved] = useState([]);
   const [toast, setToast] = useState(null);
   const [selectedCommande, setSelectedCommande] = useState(null);
-  
-  // 🔐 État pour suivre les identifiants des commandes déjà injectées dans le chargement en cours
   const [injectedCommandes, setInjectedCommandes] = useState([]);
 
-  // Load persisted demandes, vendors and fleet from Supabase on mount
+  // Détection si l'utilisateur connecté est un commercial ou un chef commercial
+  const isCommercialUser = user?.roles?.includes("commercial") || user?.roles?.includes("chef_commercial");
+
   useEffect(() => {
-    sb.from("vendors")
-      .select("id,code,name,phone,is_active")
-      .eq("is_active", true)
-      .order("name")
-      .then(({ data, error }) => {
-        if (!error) setVendors(data || []);
+    // 👥 Récupération des vendeurs depuis user_profiles ayant le rôle commercial ou chef_commercial
+sb.from("user_profiles")
+    .select("id, full_name, role")
+    .in("role", ["commercial", "chef_commercial"]) // 👈 Utilisation de .in() au lieu du .or() complexe
+    .order("full_name")
+    .then(({ data, error }) => {
+      if (!error && data) {
+        // Mapping pour standardiser la structure avec le reste de l'application
+        const formattedVendors = data.map(v => ({
+          id: v.id,
+          name: v.full_name,
+          code: v.role === "chef_commercial" ? "CHEF" : "COMM"
+        }));
+        setVendors(formattedVendors);
+      } else if (error) {
+        console.error("Erreur lors du chargement de user_profiles:", error);
+      }
       });
 
     sb.from("flotte")
@@ -53,6 +81,7 @@ export default function DemandeChargementView({ user, cpf, lots = [], addAudit, 
             id: r.id,
             num: r.number,
             date: r.date,
+            heure: r.heure || "08:00",
             vehicule: r.vehicule || "",
             conducteur: r.conducteur || "",
             totalPcs: r.total_pcs || 0,
@@ -64,6 +93,26 @@ export default function DemandeChargementView({ user, cpf, lots = [], addAudit, 
         }
       });
   }, []);
+
+  // 🔐 Sécurité & Assignation Automatique : Si l'user actif est commercial/chef, il s'auto-assigne
+  useEffect(() => {
+    if (isCommercialUser && vendors.length > 0) {
+      const matchingVendor = vendors.find(v => v.id === user.id || v.name?.toLowerCase() === user.nom?.toLowerCase());
+      if (matchingVendor) {
+        setForm(current => ({
+          ...current,
+          conducteurId: matchingVendor.id,
+          conducteur: matchingVendor.name
+        }));
+      } else {
+        setForm(current => ({
+          ...current,
+          conducteurId: user.id || "commercial-fallback",
+          conducteur: user.nom
+        }));
+      }
+    }
+  }, [vendors, user, isCommercialUser]);
 
   const up = (key, value) => {
     setForm(current => ({ ...current, [key]: value }));
@@ -91,7 +140,6 @@ export default function DemandeChargementView({ user, cpf, lots = [], addAudit, 
   const injectCommandeItems = (commande) => {
     if (!commande || !commande.items) return;
     
-    // Sécurité additionnelle si le bouton était cliqué malgré la désactivation visuelle
     if (injectedCommandes.includes(commande.id)) {
       setToast({ msg: "⚠️ Les articles de cette commande ont déjà été ajoutés.", color: "#d97706" });
       return;
@@ -108,24 +156,48 @@ export default function DemandeChargementView({ user, cpf, lots = [], addAudit, 
     });
 
     setForm(f => ({ ...f, items: [...f.items, ...newItems] }));
-    
-    // 🔐 Enregistrer cette commande comme "injectée"
     setInjectedCommandes(prev => [...prev, commande.id]);
     setToast({ msg: `📥 Articles de la commande ${commande.number} ajoutés !`, color: "#3b82f6" });
   };
 
   const submit = async () => {
     const num = `DC-${TODAY}-${String(saved.length + 1).padStart(3, "0")}`;
-    const dc = { id: `DC-${Date.now()}`, num, date: form.date, vehiculeId: form.vehiculeId, vehicule: vehicle?.immat, conducteurId: form.conducteurId, conducteur: form.conducteur, items: form.items, totalPcs, totalKg, tauxKg, status: "confirmé", createdBy: user.nom };
+    
+    const finalConducteurName = isCommercialUser ? user.nom : (selectedVendor?.name || form.conducteur);
+    const finalConducteurId = isCommercialUser ? (vendors.find(v => v.name?.toLowerCase() === user.nom?.toLowerCase())?.id || user.id) : form.conducteurId;
+
+    const dc = { 
+      id: `DC-${Date.now()}`, 
+      num, 
+      date: form.date, 
+      heure: form.heure, 
+      vehiculeId: form.vehiculeId, 
+      vehicule: vehicle?.immat, 
+      conducteurId: finalConducteurId, 
+      conducteur: finalConducteurName, 
+      items: form.items, 
+      totalPcs, 
+      totalKg, 
+      tauxKg, 
+      status: "confirmé", 
+      createdBy: user.nom 
+    };
     
     setSaved(s => [dc, ...s]);
     addAudit(user.nom, (user.roles || [])[0], "CHARGEMENT", "chargements", num, `${vehicle?.immat} · ${totalPcs} pcs · Taux: ${tauxKg}%`);
     setToast({ msg: `✅ Chargement ${num} confirmé`, color: "#059689" });
     
-    // Réinitialiser le formulaire et vider la liste des injections
-    setForm({ date: TODAY, vehiculeId: "", conducteurId: "", conducteur: "", items: [], notes: "" });
+    setForm({ 
+      date: TODAY, 
+      heure: "08:00", 
+      vehiculeId: "", 
+      conducteurId: isCommercialUser ? finalConducteurId : "", 
+      conducteur: isCommercialUser ? finalConducteurName : "", 
+      items: [], 
+      notes: "" 
+    });
     setSelectedCommande(null);
-    setInjectedCommandes([]); // 🔐 Prêt pour le prochain camion
+    setInjectedCommandes([]);
 
     try {
       const isUUID = s => s && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
@@ -133,9 +205,11 @@ export default function DemandeChargementView({ user, cpf, lots = [], addAudit, 
       await sb.from("demandes_chargement").insert({
         number: num,
         date: form.date || TODAY,
+        heure: form.heure || "08:00",
         vehicule: vehicle?.immat || "",
         vehicule_id: form.vehiculeId || null,
-        conducteur: selectedVendor?.name || form.conducteur || "",
+        conducteur: finalConducteurName,
+        conducteur_id: isUUID(finalConducteurId) ? finalConducteurId : null,
         total_pcs: totalPcs,
         total_kg: totalKg,
         taux_kg: tauxKg,
@@ -150,7 +224,7 @@ export default function DemandeChargementView({ user, cpf, lots = [], addAudit, 
         .map(item => {
           const a = artsList.find(x => x.id === item.artId);
           return {
-            conducteur: selectedVendor?.name || form.conducteur,
+            conducteur: finalConducteurName,
             vehicule: vehicle?.immat || "",
             art_id: item.artId || null,
             art_code: a?.code || item.artId || "",
@@ -188,20 +262,19 @@ export default function DemandeChargementView({ user, cpf, lots = [], addAudit, 
   };
 
   const validateChargement = async (id, num) => {
-  setSaved(current => 
-    current.map(dc => dc.id === id ? { ...dc, status: "validé" } : dc)
-  );
-  
-  setToast({ msg: `🚀 Chargement ${num} validé définitivement !`, color: "#059689" });
-
-  
-  try {
-    await sb.from("demandes_chargement")
-      .update({ status: "validé" })
-      .eq("number", num); 
-  } catch (e) {
-    console.error("Erreur lors de la validation du chargement dans la base :", e);
-  }
+    setSaved(current => 
+      current.map(dc => dc.id === id ? { ...dc, status: "validé" } : dc)
+    );
+    
+    setToast({ msg: `🚀 Chargement ${num} validé définitivement !`, color: "#059689" });
+    
+    try {
+      await sb.from("demandes_chargement")
+        .update({ status: "validé" })
+        .eq("number", num); 
+    } catch (e) {
+      console.error("Erreur lors de la validation du chargement dans la base :", e);
+    }
   };
 
   return (
@@ -211,7 +284,7 @@ export default function DemandeChargementView({ user, cpf, lots = [], addAudit, 
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-gray-900">Demande de Chargement</h1>
-          <p className="text-xs text-gray-400 mt-0.5">Sélection véhicule · Articles · Jauge de chargement · IA</p>
+          <p className="text-xs text-gray-400 mt-0.5">Sélection véhicule · Articles · Jauge de chargement · Profils Commerciaux</p>
         </div>
       </div>
 
@@ -221,25 +294,50 @@ export default function DemandeChargementView({ user, cpf, lots = [], addAudit, 
           <Card className="p-5 space-y-4">
             <h3 className="font-bold text-gray-800 text-sm">1. Véhicule & Date</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Input label="Date de chargement *" type="date" value={form.date} onChange={e => up("date", e.target.value)} />
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Vendeur / Chauffeur *</label>
-                <select
-                  value={form.conducteurId}
-                  onChange={e => {
-                    const vendor = vendors.find(v => v.id === e.target.value);
-                    up("conducteurId", e.target.value);
-                    up("conducteur", vendor?.name || "");
-                  }}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 min-h-[40px] bg-white"
-                >
-                  <option value="">Sélectionner...</option>
-                  {vendors.map(v => (
-                    <option key={v.id} value={v.id}>{v.code} — {v.name}</option>
-                  ))}
-                </select>
+              
+              {/* Bloc Date & Heure */}
+              <div className="grid grid-cols-2 gap-2">
+                <Input label="Date *" type="date" value={form.date} onChange={e => up("date", e.target.value)} />
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Heure *</label>
+                  <select
+                    value={form.heure}
+                    onChange={e => up("heure", e.target.value)}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 min-h-[40px] bg-white font-medium"
+                  >
+                    {timeSlots.map(slot => (
+                      <option key={slot} value={slot}>{slot}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
+
+              {/* Bloc Vendeur (user_profiles conditionnel) */}
               <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Vendeur *</label>
+                {isCommercialUser ? (
+                  <div className="w-full border border-blue-200 bg-blue-50 text-blue-800 font-semibold rounded-xl px-3 py-2 text-sm min-h-[40px] flex items-center gap-2">
+                    👤 {user.nom} <span className="text-[10px] bg-blue-200 text-blue-700 px-2 py-0.5 rounded-md font-bold uppercase">Moi ({user.roles?.includes("chef_commercial") ? "Chef Comm" : "Commercial"})</span>
+                  </div>
+                ) : (
+                  <select
+                    value={form.conducteurId}
+                    onChange={e => {
+                      const vendor = vendors.find(v => v.id === e.target.value);
+                      up("conducteurId", e.target.value);
+                      up("conducteur", vendor?.name || "");
+                    }}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 min-h-[40px] bg-white font-medium"
+                  >
+                    <option value="">Sélectionner un commercial...</option>
+                    {vendors.map(v => (
+                      <option key={v.id} value={v.id}>{v.name} ({v.code})</option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              <div className="flex flex-col gap-1.5 md:col-span-2">
                 <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Véhicule *</label>
                 <select
                   value={form.vehiculeId}
@@ -289,7 +387,7 @@ export default function DemandeChargementView({ user, cpf, lots = [], addAudit, 
 
             <Textarea label="Notes" value={form.notes} onChange={e => up("notes", e.target.value)} placeholder="Instructions particulières..." />
 
-            <Btn variant="success" size="lg" className="w-full" disabled={!form.vehiculeId || !form.conducteurId || !form.items.length} onClick={submit}>
+            <Btn variant="success" size="lg" className="w-full" disabled={!form.vehiculeId || ( !isCommercialUser && !form.conducteurId ) || !form.items.length} onClick={submit}>
               ✓ Confirmer le chargement
             </Btn>
           </Card>
@@ -387,38 +485,38 @@ export default function DemandeChargementView({ user, cpf, lots = [], addAudit, 
       </Card>
 
       {saved.length > 0 && (
-  <Card>
-    <div className="px-5 py-3 border-b border-gray-50 font-bold text-sm">Chargements enregistrés</div>
-    <div className="divide-y divide-gray-50">
-      {saved.map(dc => (
-        <div key={dc.id} className="flex items-center gap-4 p-4 text-xs">
-          <span className="font-mono font-bold text-blue-700">{dc.num}</span>
-          <span>{dc.vehicule}</span>
-          <span className="text-gray-500">{dc.conducteur}</span>
-          <span className="font-bold">{dc.totalPcs.toLocaleString()} pcs</span>
-          <span className="text-gray-500">{dc.totalKg.toFixed(0)} kg · {dc.tauxKg}%</span>
-          
-          {/* Section dynamique : Bouton de validation OU Badge validé */}
-          <div className="ml-auto flex items-center gap-2">
-            {dc.status === "validé" ? (
-              <span className="bg-green-100 text-green-700 font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
-                ✓ Validé
-              </span>
-            ) : (
-              <Btn 
-                variant="success" 
-                size="xs" 
-                onClick={() => validateChargement(dc.id, dc.num)}
-              >
-                ⚡ Confirmer & Clôturer
-              </Btn>
-            )}
+        <Card>
+          <div className="px-5 py-3 border-b border-gray-50 font-bold text-sm">Chargements enregistrés</div>
+          <div className="divide-y divide-gray-50">
+            {saved.map(dc => (
+              <div key={dc.id} className="flex items-center gap-4 p-4 text-xs">
+                <span className="font-mono font-bold text-blue-700">{dc.num}</span>
+                <span className="text-gray-400">🕒 {dc.heure}</span>
+                <span>{dc.vehicule}</span>
+                <span className="text-gray-500">{dc.conducteur}</span>
+                <span className="font-bold">{dc.totalPcs.toLocaleString()} pcs</span>
+                <span className="text-gray-500">{dc.totalKg.toFixed(0)} kg · {dc.tauxKg}%</span>
+                
+                <div className="ml-auto flex items-center gap-2">
+                  {dc.status === "validé" ? (
+                    <span className="bg-green-100 text-green-700 font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                      ✓ Validé
+                    </span>
+                  ) : (
+                    <Btn 
+                      variant="success" 
+                      size="xs" 
+                      onClick={() => validateChargement(dc.id, dc.num)}
+                    >
+                      ⚡ Confirmer & Clôturer
+                    </Btn>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
-        </div>
-      ))}
-    </div>
-  </Card>
-)}
+        </Card>
+      )}
 
       {/* Modal suggestions IA */}
       <Modal open={showIA} onClose={() => setShowIA(false)} title="🤖 Suggestions IA — Optimisation chargement" maxWidth="max-w-lg">

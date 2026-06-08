@@ -40,6 +40,7 @@ import ReceptionFournisseurPage from "./views/RecepMP.jsx";
 import GestionCommercialeHub from "./views/Visite.jsx";
 import ObjectifsPage from "./views/ObjView.jsx";
 import RequestsView from "./views/PersonnelView.jsx";
+import OptimisationTourneeView from "./views/Opt-tournée.jsx";
 
 import {
   initLots, initBLs, initBRs, initCPF, initCMP, initAlerts,
@@ -87,12 +88,13 @@ const NAV_GROUPS = [
   ]},
   { group:"Commerce", icon:"🛒", items:[
     { id:"cpf",           label:"Commandes PF",       icon:"📋", roles:[] },
-    { id:"bl",            label:"Bons de Livraison",  icon:"🚚", roles:[] },
-    { id:"br",            label:"Bons de Retour",     icon:"↩",  roles:[] },
+    //{ id:"bl",            label:"Bons de Livraison",  icon:"🚚", roles:[] },
+    //{ id:"br",            label:"Bons de Retour",     icon:"↩",  roles:[] },
     { id:"clients",       label:"Clients",            icon:"🤝", roles:[] },
     { id:"performance",   label:"Performance",        icon:"📊", roles:["dg","finance","dir_commercial","chef_commercial","commercial"] },
     { id:"demande_chargement", label:"Demande Chargement", icon:"🚛", roles:[] },
     { id:"gestion_commerciale", label:"Visite", icon:"🛒", roles:[] },
+    {id:"optimisation_tournee", label:"Optimisation Tournée", icon:"🗺", roles:[] },
   ]},
   { group:"Production", icon:"🏭", items:[
     { id:"production",         label:"Production",         icon:"⚙",  roles:["dg","chef_usine","operator"] },
@@ -114,7 +116,7 @@ const NAV_GROUPS = [
     { id:"stock", label:"Stock PF", icon:"📦", roles:[] },
   ]},
   { group:"Finance", icon:"💰", items:[
-    { id:"facturation",  label:"Facturation",       icon:"📄", roles:[] },
+    //{ id:"facturation",  label:"Facturation",       icon:"📄", roles:[] },
     { id:"encaissement", label:"Encaissements",     icon:"💵", roles:[] },
     { id:"finance_dash", label:"Dashboard Finance", icon:"💹", roles:["dg","finance"] },
     { id:"traites",      label:"Traites & Échéances", icon:"🗒", roles:["dg","finance"] },
@@ -262,8 +264,8 @@ export default function App() {
     switch (page) {
       case "home":              return <HomeView {...p} data={{ lots, bls, brs, cpf, cmp, qcControls: QC_INIT, inventory: INVENTORY_INIT }} alerts={alerts} onNavigate={navigate} factures={factures} arts={arts}/>;
       case "cpf":               return <CommandesPFView {...p} cpf={cpf} setCpf={setCpf} lots={lots} arts={arts} clients={clients}/>;
-      case "bl":                return <BLView {...p} bls={bls} setBls={setBls} lots={lots} setLots={setLots} arts={arts} clients={clients} onSaved={() => reloadSupa(["delivery_orders","production_lots"])}/>;
-      case "br":                return <BRView {...p} brs={brs} setBrs={setBrs} lots={lots} setLots={setLots} arts={arts} clients={clients} onSaved={() => reloadSupa(["return_orders","production_lots"])}/>;
+      //case "bl":                return <BLView {...p} bls={bls} setBls={setBls} lots={lots} setLots={setLots} arts={arts} clients={clients} onSaved={() => reloadSupa(["delivery_orders","production_lots"])}/>;
+      //case "br":                return <BRView {...p} brs={brs} setBrs={setBrs} lots={lots} setLots={setLots} arts={arts} clients={clients} onSaved={() => reloadSupa(["return_orders","production_lots"])}/>;
       case "clients":           return <ClientsView {...p} clients={clients} setClients={setClients}/>;
       case "performance":       return <PerformanceView {...p}/>;
       case "production":        return <ProductionView {...p} lots={lots} setLots={setLots} arts={arts} onSaved={() => reloadSupa(["production_lots"])}/>;
@@ -278,7 +280,7 @@ export default function App() {
       case "alerts":            return <AlertsView {...p} alerts={alerts} setAlerts={setAlerts}/>;
       case "stock":             return <StockView {...p} lots={lots} setLots={setLots} arts={arts}/>;
       case "catalog":           return <CatalogView toast={() => {}}/>;
-      case "facturation":       return <FacturationView {...p} factures={factures} setFactures={setFactures} lots={lots} clients={clients} onSaved={() => reloadSupa(["factures"])}/>;
+      //case "facturation":       return <FacturationView {...p} factures={factures} setFactures={setFactures} lots={lots} clients={clients} onSaved={() => reloadSupa(["factures"])}/>;
       case "encaissement":      return <EncaissementView {...p} encaissements={encaissements} setEncaissements={setEncaissements} factures={factures}/>;
       case "finance_dash":      return <FinanceDashboard factures={factures} encaissements={encaissements} bls={bls}/>;
       case "prix":              return <PrixView {...p} arts={arts} onSaved={() => reloadSupa(["products"])}/>;
@@ -289,6 +291,7 @@ export default function App() {
       case "audit":             return <AuditView auditLogs={auditLogs}/>;
       case "notifications":     return <NotificationsView notifications={notifications} markRead={markRead} markAllRead={markAllRead}/>;
       case "ai":                return <AIView lots={lots} alerts={alerts}/>;
+      case "optimisation_tournee": return <OptimisationTourneeView {...p} commandes={cpf} clients={clients} tourneeOptimisee={[]} setTourneeOptimisee={() => {}}/>;
       case "requests":          return <RequestsView {...p} requests={[]} setRequests={() => {}}/>;
       case "traites":           return <TraitesPage {...p} traites={traites} setTraites={setTraites} factures={factures} bls={bls} clients={clients} fournisseurs={fournisseurs} addNotif={() => {}} onSaved={() => reloadSupa(["traites"])}/>
       case "settings":          return <SettingsView user={user} toast={() => {}}/>;  
