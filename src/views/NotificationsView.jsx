@@ -7,28 +7,79 @@ export default function NotificationsView({ notifications = [], markRead, markAl
   const [incidents, setIncidents] = useState([]);
   const [notifFilter, setNotifFilter] = useState("all");
   const [incFilter, setIncFilter] = useState("all");
-
-  // Charger les incidents avec la jointure native globale
+ 
+  // 🔥 Nouveaux états pour gérer l'utilisateur et le chargement
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  console.log("Utilisateur connecté :", user);
+  // Tout se fait au chargement du composant
   useEffect(() => {
-    const fetchIncidents = async () => {
-      const { data, error } = await sb
-        .from("incidents")
-        .select(`
-          *,
-          clients (
-            *
-          )
-        `)
-        .order("created_at", { ascending: false });
+    const initAndFetch = async () => {
+      try {
+        setLoading(true);
+        
+        // 1. Obtenir le user connecté au service Auth
+        const { data: { user: authUser }, error: authError } = await sb.auth.getUser();
+        if (authError || !authUser) throw new Error("Utilisateur non connecté");
 
-      if (!error && data) {
-        setIncidents(data);
-      } else {
-        console.error("Erreur chargement incidents natifs :", error);
+        // 2. Chercher son profil dans user_profiles
+        const { data: profile, error: profileError } = await sb
+          .from("user_profiles")
+          .select(`
+            id, 
+            full_name, 
+            role_code, 
+            roles ( label )
+          `)
+          .eq("id", authUser.id) 
+          .maybeSingle();
+
+        if (profileError) throw profileError;
+
+        let activeProfile = null;
+        if (profile) {
+          activeProfile = {
+            id: profile.id, 
+            display_name: profile.full_name || "Sans nom",
+            role: profile.roles?.label || profile.role_code || "Collaborateur"
+          };
+          setUser(activeProfile);
+        }
+
+        // 3. Préparer la requête des incidents
+        let query = sb
+          .from("incidents")
+          .select(`
+            *,
+            clients (
+              *
+            )
+          `)
+          .order("created_at", { ascending: false });
+
+        // 4. 🔥 Application du filtre SI c'est un commercial
+        if (activeProfile && ["commercial", "chef d'usine"].includes(activeProfile.role?.toLowerCase())) {
+          // ⚠️ ATTENTION : Remplace 'user_id' par la colonne de ta table "incidents"
+          // qui stocke l'ID du déclarant (ex: 'declare_par', 'commercial_id')
+          query = query.eq("declare_par", activeProfile.id); 
+        }
+
+        const { data: incidentsData, error: incidentsError } = await query;
+
+        if (!incidentsError && incidentsData) {
+          setIncidents(incidentsData);
+        } else {
+          console.error("Erreur chargement incidents natifs :", incidentsError);
+        }
+
+      } catch (error) {
+        console.error("Erreur d'initialisation :", error);
+      } finally {
+        setLoading(false);
       }
     };
 
-    fetchIncidents();
+    initAndFetch();
   }, []);
 
   const TYPE_ICONS = { 
@@ -124,13 +175,13 @@ export default function NotificationsView({ notifications = [], markRead, markAl
           </div>
 
           <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
-            {filteredIncidents.map(inc => {
+            {loading ? (
+              <div className="text-center py-16 text-gray-400 text-xs animate-pulse">Chargement des incidents...</div>
+            ) : filteredIncidents.map(inc => {
               const ic = TYPE_ICONS[inc.type] || "⚠️";
               const cl = TYPE_COLORS[inc.type] || "#d97706";
               
               const operateurNom = inc["declare-parnom"] || inc.declare_parnom || inc["declare_par_nom"] || inc.declare_par_nom || "Opérateur Anonyme";
-              
-              // Détection dynamique du nom du client (s'adapte à n'importe quelle colonne textuelle de ton schéma)
               const clientNom = inc.clients?.nom || inc.clients?.name || inc.clients?.nom_client || inc.clients?.raison_sociale || "Client ID: " + inc.client_id;
 
               return (
@@ -152,39 +203,40 @@ export default function NotificationsView({ notifications = [], markRead, markAl
                 </div>
               );
             })}
-            {filteredIncidents.length === 0 && <div className="text-center py-16 text-gray-400 text-xs">Aucun incident.</div>}
+            {!loading && filteredIncidents.length === 0 && <div className="text-center py-16 text-gray-400 text-xs">Aucun incident.</div>}
           </div>
         </Card>
       </div>
 
-      {/* MODAL DETAILES */}
-      <Modal open={!!selected} onClose={() => setSelected(null)} title={selected?.isIncident ? "Fiche Incident" : "Notification Système"} maxWidth="max-w-md">
-        {selected && (
-          <div className="space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="text-3xl">{TYPE_ICONS[selected.type] || "•"}</div>
-              <div>
-                <div className="font-bold text-sm text-gray-900">{selected.title || selected.motif}</div>
-                <div className="text-xs text-gray-400">{formatDate(selected.createdAt || selected.created_at)}</div>
-              </div>
-            </div>
-            
-            <div className="space-y-1">
-              <div className="text-[10px] font-bold text-gray-400 uppercase">Description / Commentaire</div>
-              <p className="text-xs text-gray-700 leading-relaxed bg-gray-50 p-3 rounded-xl border border-gray-100 whitespace-pre-line">{selected.message || selected.commentaire || "Aucun détail."}</p>
-            </div>
+      {/* MODAL DETAIL */}
+      {/* MODAL DETAIL */}
+<Modal open={!!selected} onClose={() => setSelected(null)} title={selected?.isIncident ? "Fiche Incident" : "Notification Système"} maxWidth="max-w-md">
+  {selected && (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <div className="text-3xl">{TYPE_ICONS[selected.type] || "•"}</div>
+        <div>
+          <div className="font-bold text-sm text-gray-900">{selected.title || selected.motif}</div>
+          <div className="text-xs text-gray-400">{formatDate(selected.createdAt || selected.created_at)}</div>
+        </div>
+      </div>
+      
+      <div className="space-y-1">
+        <div className="text-[10px] font-bold text-gray-400 uppercase">Description / Commentaire</div>
+        <p className="text-xs text-gray-700 leading-relaxed bg-gray-50 p-3 rounded-xl border border-gray-100 whitespace-pre-line">{selected.message || selected.commentaire || "Aucun détail."}</p>
+      </div>
 
-            {selected.isIncident && (
-              <div className="bg-gray-50 rounded-xl p-3 text-xs space-y-1.5 border border-gray-100 text-gray-600">
-                <div><strong>Type d'Anomalie :</strong> {selected.type?.replace("_", " ")}</div>
-                <div><strong>Client concerné :</strong> <span className="text-blue-600 font-semibold">{selected.clients?.nom || selected.clients?.name || selected.clients?.nom_client || selected.clients?.raison_sociale || "ID: " + selected.client_id}</span></div>
-                <div><strong>Déclaré par (Opérateur) :</strong> <span className="text-gray-900 font-medium">{selected["declare-parnom"] || selected.declare_parnom || selected["declare_par_nom"] || selected.declare_par_nom || "Opérateur Anonyme"}</span></div>
-              </div>
-            )}
-            <Btn variant="secondary" className="w-full text-xs" onClick={() => setSelected(null)}>Fermer la fiche</Btn>
-          </div>
-        )}
-      </Modal>
+      {selected.isIncident && (
+        <div className="bg-gray-50 rounded-xl p-3 text-xs space-y-1.5 border border-gray-100 text-gray-600">
+          <div><strong>Type d'Anomalie :</strong> {selected.type?.replace("_", " ")}</div>
+          <div><strong>Client concerné :</strong> <span className="text-blue-600 font-semibold">{selected.clients?.nom || selected.clients?.name || selected.clients?.nom_client || selected.clients?.raison_sociale || "ID: " + selected.client_id}</span></div>
+          <div><strong>Déclaré par (Opérateur) :</strong> <span className="text-gray-900 font-medium">{selected["declare-parnom"] || selected.declare_parnom || selected["declare_par_nom"] || selected.declare_par_nom || "Opérateur Anonyme"}</span></div>
+        </div>
+      )}
+      <Btn variant="secondary" className="w-full text-xs" onClick={() => setSelected(null)}>Fermer la fiche</Btn>
+    </div>
+  )}
+</Modal>
     </div>
   );
 }

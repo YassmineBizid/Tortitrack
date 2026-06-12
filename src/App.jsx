@@ -41,7 +41,12 @@ import GestionCommercialeHub from "./views/Visite.jsx";
 import ObjectifsPage from "./views/ObjView.jsx";
 import RequestsView from "./views/PersonnelView.jsx";
 import OptimisationTourneeView from "./views/Opt-tournée.jsx";
-
+import DashboardAchatPage from "./views/DashboardAchatPage.jsx";
+import EvaluationFournisseursPage from "./views/EvaluationFPage.jsx";
+//import NewClientFormV2 from "./views/ficheclient.jsx";
+import FicheClientV2 from "./views/ficheclient.jsx";
+import ClientPage from "./views/ClientPage.jsx"
+import TraitessPage from "./views/TraiteView.jsx";
 import {
   initLots, initBLs, initBRs, initCPF, initCMP, initAlerts,
   initFactures, initEncaissements, initStockCamion,
@@ -91,6 +96,7 @@ const NAV_GROUPS = [
     //{ id:"bl",            label:"Bons de Livraison",  icon:"🚚", roles:[] },
     //{ id:"br",            label:"Bons de Retour",     icon:"↩",  roles:[] },
     { id:"clients",       label:"Clients",            icon:"🤝", roles:[] },
+    { id:"clientpage",       label:"Clients",            icon:"🤝", roles:[] },
     { id:"performance",   label:"Performance",        icon:"📊", roles:["dg","finance","dir_commercial","chef_commercial","commercial"] },
     { id:"demande_chargement", label:"Demande Chargement", icon:"🚛", roles:[] },
     { id:"gestion_commerciale", label:"Visite", icon:"🛒", roles:[] },
@@ -102,9 +108,12 @@ const NAV_GROUPS = [
     
   ]},
   { group:"Achats", icon:"🛍", items:[
+    { id:"dashboard_achat", label:"Dashboard Achat", icon:"📊", roles:["dg","acheteur"] },
     { id:"achats",       label:"Achats MP",    icon:"📦", roles:["dg","acheteur"] },
     { id:"fournisseurs", label:"Fournisseurs", icon:"🏢", roles:["dg","acheteur"] },
+    { id:"evaluation_fournisseurs", label:"Évaluation Fournisseurs", icon:"⭐", roles:["dg","acheteur"] },
     { id:"reception_mp", label:"Réception MP",    icon:"📦", roles:["dg","acheteur","quality"] },
+
   ]},
   { group:"Qualité", icon:"🔬", items:[
     { id:"qualite",    label:"Contrôle Qualité", icon:"🔬", roles:["dg","quality","chef_usine"] },
@@ -120,6 +129,7 @@ const NAV_GROUPS = [
     { id:"encaissement", label:"Encaissements",     icon:"💵", roles:[] },
     { id:"finance_dash", label:"Dashboard Finance", icon:"💹", roles:["dg","finance"] },
     { id:"traites",      label:"Traites & Échéances", icon:"🗒", roles:["dg","finance"] },
+    { id:"traite",      label:"Traites", icon:"🗒", roles:["dg","finance"] },
     { id:"prix",         label:"Tarifs & Prix",     icon:"🏷",  roles:[] },
     { id:"catalog", label:"Catalog",       icon:"📊", roles:[] },
     { id:"cloture_tournee", label:"Clôture Tournée", icon:"✅", roles:["dg","finance","dir_commercial"] },
@@ -136,6 +146,7 @@ const NAV_GROUPS = [
   { group:"Outils", icon:"🛠", items:[
     { id:"ai",       label:"Assistant IA", icon:"🤖", roles:[] },
     { id:"settings", label:"Paramètres",   icon:"⚙",  roles:[] },
+    { id:"new_client", label:"Nouveau Client", icon:"🆕", roles:[] },
   ]},
 ];
 
@@ -289,12 +300,17 @@ export default function App() {
       case "rh":                return <RHView {...p}/>;
       case "users":             return <UsersView {...p}/>;
       case "audit":             return <AuditView auditLogs={auditLogs}/>;
+      case "dashboard_achat":   return <DashboardAchatPage {...p} da={[]} cmp={cmp} receptions={receptions} historiquePrix={[]} />;
       case "notifications":     return <NotificationsView notifications={notifications} markRead={markRead} markAllRead={markAllRead}/>;
+      case "evaluation_fournisseurs": return <EvaluationFournisseursPage {...p} fournisseurs={fournisseurs} cmp={cmp} onSaved={() => reloadSupa(["commandes_mp"])}/>;
       case "ai":                return <AIView lots={lots} alerts={alerts}/>;
       case "optimisation_tournee": return <OptimisationTourneeView {...p} commandes={cpf} clients={clients} tourneeOptimisee={[]} setTourneeOptimisee={() => {}}/>;
       case "requests":          return <RequestsView {...p} requests={[]} setRequests={() => {}}/>;
       case "traites":           return <TraitesPage {...p} traites={traites} setTraites={setTraites} factures={factures} bls={bls} clients={clients} fournisseurs={fournisseurs} addNotif={() => {}} onSaved={() => reloadSupa(["traites"])}/>
       case "settings":          return <SettingsView user={user} toast={() => {}}/>;  
+      case "new_client":      return <FicheClientV2 onSave={() => {}} users={[]} />;
+      case "traite":           return <TraitessPage {...p} traites={traites} setTraites={setTraites} factures={factures} bls={bls} clients={clients} fournisseurs={fournisseurs} addNotif={() => {}} onSaved={() => reloadSupa(["traites"])}/>;
+      case "clientpage":      return <ClientPage clients={clients} setClients={setClients} addAudit={addAudit} factures={factures} bls={bls} onSaved={() => reloadSupa(["clients","factures","delivery_orders"])}/>;
       case "objectifs":         return <ObjectifsPage {...p} objectifsDG={[]} setObjectifsDG={() => {}} objectifsDept={[]} setObjectifsDept={() => {}} objectifsInt={[]} setObjectifsInt={() => {}}/>;
       case "reception_mp":
       case "receptions":         return <ReceptionFournisseurPage user={user} receptions={receptions} setReceptions={setReceptions} cmp={cmp} addAudit={addAudit}/>;

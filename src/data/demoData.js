@@ -210,7 +210,7 @@ export const fmt  = n => (n || 0).toLocaleString("fr-FR");
 export const fmtK = n => n >= 1000 ? `${(n/1000).toFixed(0)}k` : `${n}`;
 export const fmtDT = (d, withTime=false) => new Date(d || Date.now()).toLocaleString("fr-FR", { day:"2-digit", month:"2-digit", year:"numeric", ...(withTime ? {hour:"2-digit", minute:"2-digit"} : {}) });
 
-export const computeStockValueDt = (lots) =>
+export const computeStockValueDt = (lots = []) =>
   lots.filter(l => l.status === "available").reduce((s, l) => {
     const a = ARTS.find(x => x.id === l.artId);
     return s + (a ? l.availQty * a.price : 0);
@@ -252,3 +252,94 @@ export const detectRetourAnormal = (brs) => {
   brs.forEach(b => { if (b.lotNum) counts[b.lotNum] = (counts[b.lotNum] || 0) + 1; });
   return Object.entries(counts).filter(([, n]) => n >= 3).map(([lot, n]) => ({ lot, n }));
 };
+
+export const ARTICLES_ACHAT = [
+  {id:"mp1",nom:"Farine T55",         famille:"F1",unite:"kg",  stockActuel:8500, stockMin:3000, stockMax:20000, consoMoyJour:850, prixRef:0.380, fournisseurPref:"f1"},
+  {id:"mp2",nom:"Farine complète",    famille:"F1",unite:"kg",  stockActuel:1200, stockMin:1000, stockMax:8000,  consoMoyJour:250, prixRef:0.420, fournisseurPref:"f1"},
+  {id:"mp3",nom:"Huile végétale",     famille:"F2",unite:"L",   stockActuel:2800, stockMin:1500, stockMax:8000,  consoMoyJour:320, prixRef:1.850, fournisseurPref:"f2"},
+  {id:"mp4",nom:"Sel",               famille:"F5",unite:"kg",  stockActuel:450,  stockMin:200,  stockMax:1000,  consoMoyJour:45,  prixRef:0.180, fournisseurPref:"f4"},
+  {id:"mp5",nom:"Levure",            famille:"F5",unite:"kg",  stockActuel:85,   stockMin:50,   stockMax:300,   consoMoyJour:12,  prixRef:3.500, fournisseurPref:"f4"},
+  {id:"mp6",nom:"Films d'emballage", famille:"F3",unite:"roul",stockActuel:120,  stockMin:50,   stockMax:400,   consoMoyJour:18,  prixRef:0.045, fournisseurPref:"f3"},
+  {id:"mp7",nom:"Boîtes carton",     famille:"F4",unite:"pcs", stockActuel:3200, stockMin:2000, stockMax:12000, consoMoyJour:800, prixRef:0.120, fournisseurPref:"f3"},
+];
+export const FAMILLES_ACHAT = [
+  {id:"F1",nom:"Matières premières agricoles",couleur:"#059669"},
+  {id:"F2",nom:"Huiles et graisses",          couleur:"#d97706"},
+  {id:"F3",nom:"Emballages primaires",         couleur:"#3b82f6"},
+  {id:"F4",nom:"Emballages secondaires",       couleur:"#7c3aed"},
+  {id:"F5",nom:"Additifs et auxiliaires",      couleur:"#dc2626"},
+  {id:"F6",nom:"Pièces de rechange",           couleur:"#64748b"},
+  {id:"F7",nom:"Consommables maintenance",     couleur:"#0891b2"},
+  {id:"F8",nom:"Fournitures bureau",           couleur:"#94a3b8"},
+];
+
+export const FOURNISSEURS_ERP = [
+  {id:"f1",name:"Moulins du Nord",  matieres:["Farine T55","Farine complète"],
+   delaiMoyen:3,  evaluation:4.5, contact:"+216 71 xxx xxx", email:"contact@moulins-nord.tn",
+   adresse:"Zone Industrielle, Tunis", categorieRisque:"low",
+   tauxConformite:96, nbNC:1, nbCommandes:12, totalAchats:22800,
+   condPaiement:"30j",  devise:"TND", actif:true,
+   historiqueNC:["2026-03-10:Humidité farine > norme"],
+   prixRef:{farine_t55:0.380, farine_complete:0.420}},
+  {id:"f2",name:"Huiles Réunies SA",matieres:["Huile végétale"],
+   delaiMoyen:5,  evaluation:3.8, contact:"+216 73 xxx xxx", email:"achats@huiles-reunies.tn",
+   adresse:"Port de Sfax", categorieRisque:"medium",
+   tauxConformite:88, nbNC:3, nbCommandes:8, totalAchats:15600,
+   condPaiement:"45j", devise:"TND", actif:true,
+   historiqueNC:["2026-02-15:Acidité élevée","2026-04-01:Retard 4j"],
+   prixRef:{huile_vegetale:1.850}},
+  {id:"f3",name:"Emballages Pro SARL",matieres:["Films","Boîtes","Sachets"],
+   delaiMoyen:7,  evaluation:3.2, contact:"+216 70 xxx xxx", email:"ventes@emballages-pro.tn",
+   adresse:"Sousse Nord", categorieRisque:"high",
+   tauxConformite:79, nbNC:5, nbCommandes:15, totalAchats:8900,
+   condPaiement:"30j", devise:"TND", actif:true,
+   historiqueNC:["2026-01-20:Film mal scellé","2026-03-05:Retard 8j","2026-04-18:Qté manquante"],
+   prixRef:{films:0.045, boites:0.120}},
+  {id:"f4",name:"Sel & Épices Tunisie",matieres:["Sel","Levure","Épices"],
+   delaiMoyen:2,  evaluation:4.8, contact:"+216 72 xxx xxx", email:"sel.epices@gmail.com",
+   adresse:"Nabeul", categorieRisque:"low",
+   tauxConformite:99, nbNC:0, nbCommandes:20, totalAchats:4200,
+   condPaiement:"15j", devise:"TND", actif:true,
+   historiqueNC:[], prixRef:{sel:0.180, levure:3.500}},
+];
+
+export function exportExcel(data, columns, filename) {
+  // Génère un fichier Excel-compatible (XLSX via format CSV unicode)
+  // Colonnes : [{key, label, format}]
+  if (!data || !data.length) { alert("Aucune donnée à exporter."); return; }
+  const headers = columns.map(c=>c.label);
+  const rows    = data.map(row=>columns.map(c=>{
+    const v = row[c.key];
+    if (c.format==="date")     return v ? new Date(v).toLocaleDateString("fr-FR") : "";
+    if (c.format==="currency") return v ? (parseFloat(v)||0).toFixed(3).replace(".",",") : "0";
+    if (c.format==="number")   return v ? String(v).replace(".",",") : "0";
+    return v ? String(v) : "";
+  }));
+  const bom  = "\uFEFF";
+  const sep  = "\t"; // tabulation pour Excel direct
+  const csv  = bom + [headers,...rows].map(r=>r.join(sep)).join("\n");
+  const blob = new Blob([csv],{type:"application/vnd.ms-excel;charset=utf-8;"});
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href=url; a.download=`${filename}_${new Date().toISOString().split("T")[0]}.xls`;
+  a.click(); URL.revokeObjectURL(url);
+}
+
+export function joursStock(art) {
+  if(!art||!art.consoMoyJour) return 999;
+  return Math.floor(art.stockActuel/art.consoMoyJour);
+}
+
+export function niveauRisqueMP(art) {
+  const j=joursStock(art);
+  if(j<=3)  return {niveau:"critique",color:"#dc2626",bg:"#fef2f2",label:"🔴 CRITIQUE"};
+  if(j<=7)  return {niveau:"eleve",   color:"#d97706",bg:"#fef3c7",label:"🟠 Élevé"};
+  if(j<=14) return {niveau:"moyen",   color:"#f59e0b",bg:"#fffbeb",label:"🟡 Moyen"};
+  return    {niveau:"ok",             color:"#059669",bg:"#ecfdf5",label:"🟢 OK"};
+}
+export function qteACommander(art) {
+  if(!art) return 0;
+  const besoin14j=art.consoMoyJour*14;
+  const commande=Math.max(0,besoin14j-art.stockActuel);
+  return Math.ceil(commande/100)*100;
+}
