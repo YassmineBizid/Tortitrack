@@ -152,12 +152,7 @@ export default function GestionCommercialeHub({
           📞 Réclamation client
         </button>
 
-        <button
-          onClick={() => openIncident("ANOMALIE_VEHICULE")}
-          className="px-4 py-2 bg-purple-500 text-white rounded-lg"
-        >
-          🚚 Anomalie véhicule
-        </button>
+      
       </div>
 
       {successMessage && (

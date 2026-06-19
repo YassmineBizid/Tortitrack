@@ -2,9 +2,10 @@
 
 // ── KPI data ──────────────────────────────────────────────────────────────
 export const FINANCIAL_DATA = [
-  { id:"expedition", label:"PF Expédiés",    icon:"🚚", theme:"blue",  current:185000, prev:210500, ytd:892000,  objMonth:300000, objYTD:1500000, goodDirection:"high" },
-  { id:"retours",    label:"Retours PF",     icon:"↩",  theme:"red",   current:12400,  prev:9800,   ytd:48200,   objMonth:9000,   objYTD:45000,   goodDirection:"low"  },
-  { id:"ca",         label:"CA Net Réalisé", icon:"💰", theme:"green", current:172600, prev:200700, ytd:843800,  objMonth:291000, objYTD:1455000, goodDirection:"high" },
+  { id:"expedition", label:"PF Expédiés Usine",    icon:"🚚", theme:"blue",  current:185000, prev:210500, ytd:892000,  objMonth:300000, objYTD:1500000, goodDirection:"high" },
+  { id:"retours",    label:"Retours PF Usine",     icon:"↩",  theme:"red",   current:12400,  prev:9800,   ytd:48200,   objMonth:9000,   objYTD:45000,   goodDirection:"low"  },
+  { id:"ca",         label:"CA Net  à Réaliser", icon:"💰", theme:"green", current:172600, prev:200700, ytd:843800,  objMonth:291000, objYTD:1455000, goodDirection:"high" },
+  { id:"caf",         label:"CA Net Réalisé", icon:"💲", theme:"yellow", current:172600, prev:200700, ytd:843800,  objMonth:291000, objYTD:1455000, goodDirection:"low" },
 ];
 
 export const KPI_USINE_DG = [

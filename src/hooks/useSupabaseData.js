@@ -15,10 +15,13 @@ const mapProduct = (r) => ({
   code:         r.ref,
   name:         r.name,
   price:        parseFloat(r.unit_price) || 0,
+  unit_price:   parseFloat(r.unit_price) || 0,
   weight:       r.weight,
   category:     r.category,
   barcode:      r.barcode,
   shelf_life_days: r.shelf_life_days,
+  brand_id:     r.brand_id,
+  marque_id:    r.marque_id || r.brand_id,
   minStock: 0, maxStock: 0, capacityDay: 0, capacityHour: 0,
 });
 
@@ -106,6 +109,8 @@ const mapClient = (r) => ({
   commercialId:r.commercial_id || "",
   status:      r.status || "pending",
   notes:       r.notes || "",
+  photo_urls:    r.photo_urls || [],
+  createdAt:   r.created_at,
 });
 
 const mapCPF = (r) => ({
@@ -267,7 +272,7 @@ const mapTraite = (r) => ({
   devise:         r.devise || "TND",
   dateCreation:   r.date_creation || "",
   dateReception:  r.date_reception || "",
-  dateEcheance:   r.date_echeance || "",
+  dateEcheance:   r.dateEcheance || "",
   lieu:           r.lieu || "",
   banque:         r.banque || "",
   rib:            r.rib || "",
@@ -321,7 +326,7 @@ export function useSupabaseData(fallback) {
         sb.from("stock_camion").select("*").order("date", { ascending: false }),
         sb.from("alerts").select("*").eq("status", "open").order("created_at", { ascending: false }),
         sb.from("fournisseurs").select("*").order("name"),
-        sb.from("traites").select("*").order("date_echeance", { ascending: true }),
+        sb.from("traites").select("*").order("dateEcheance", { ascending: true }),
       ]);
 
       const pick = (res, mapper) => {
@@ -416,7 +421,7 @@ export function useSupabaseData(fallback) {
           const { data, error } = await sb.from("fournisseurs").select("*").order("name");
           if (!error && data) setFournisseurs(data.map(mapFournisseur));
         } else if (t === "traites") {
-          const { data, error } = await sb.from("traites").select("*").order("date_echeance", { ascending: true });
+          const { data, error } = await sb.from("traites").select("*").order("dateEcheance", { ascending: true });
           if (!error && data) setTraites(data.map(mapTraite));
         }
       })

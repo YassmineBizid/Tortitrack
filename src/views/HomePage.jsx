@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Card, Btn } from "../components/ui.jsx";
-import { ARTS, MARQUES, ROLES_CONFIG } from "../data/demoData.js";
+import { ARTS, MARQUES, ROLES_CONFIG , AUDIT_INIT} from "../data/demoData.js";
 import KpiUsineTable from "../components/KpiUsineTable.jsx"; 
 import DashboardDG from "../dashboards/DashboardDG.jsx";
 import DashboardMarque from "../dashboards/DashboardMarque.jsx";
@@ -9,6 +9,7 @@ import DeptDashboardPage from "../dashboards/DeptDashboardPage.jsx";
 import KpiUsineOperateurTable from "../components/KpiUsineOperateurTable.jsx";
 import { ProgressBar } from "../components/ui.jsx";
 import { ROLE_TO_DEPT } from "../data/homeData.js";
+import { useAuditLog }        from "../hooks/useAuditLog.js";
 
 function getDepts(roles=[]) {
   const depts=new Set();
@@ -22,7 +23,7 @@ export default function HomePage({
   factures, encaissements, employes, presences,
 }) {
     
-  const {cpf, cmp, lots, bls, brs, qcControls, inventory} = data || {};
+  const {cpf, cmp, lots, bls, brs, qcControls, inventory, clients} = data || {};
   const roles = user?.roles || [];
 
   // Architecture multi-rôles
@@ -47,6 +48,8 @@ export default function HomePage({
       {urgent&&<div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse flex-shrink-0"/>}
     </button>
   );
+
+  const { entries:auditLogs, addAudit }   = useAuditLog(AUDIT_INIT);
  
 
   const ctx = {
@@ -317,10 +320,12 @@ const getChargeLevel = (qty) => {
         bls={bls}
         brs={brs}
         cpf={cpf}
-        clients={typeof CLIENTS !== "undefined" ? CLIENTS : []}
+        clients={clients || []}
         stockCamion={typeof stockCamion !== "undefined" ? stockCamion : []}
         prixArticles={typeof prixArticles !== "undefined" ? prixArticles : []}
         promotionsList={typeof promotionsList !== "undefined" ? promotionsList : []}
+        onNavigate={onNavigate}
+        addAudit={addAudit}
       />
     );
   }

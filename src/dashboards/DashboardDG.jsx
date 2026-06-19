@@ -88,11 +88,12 @@ const dateLabel = new Date().toLocaleDateString("fr-FR", {
                 const qty = (safeLots || []).filter(l => l?.artId === a.id && l?.status === "available").reduce((s, l) => s + (l?.availQty || 0), 0);
                 const pct = Math.min(100, qty / a.maxStock * 100);
                 const low = qty < a.minStock;
+                const valueDT = qty * a.price;
                 return (
                   <div key={a.id} className="mb-2">
                     <div className="flex justify-between text-xs mb-0.5">
                       <span className={`font-semibold ${low ? "text-amber-400" : "text-blue-200"}`}>{a.code}{low ? " ⚠" : ""}</span>
-                      <span className="text-white font-bold">{qty.toLocaleString()} pcs</span>
+                      <span className="text-white font-bold">{valueDT.toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2})} DT</span>
                     </div>
                     <div className="w-full bg-white/10 rounded-full" style={{height:3}}>
                       <div className="h-full rounded-full" style={{width:`${pct}%`, background:low?"#fbbf24":"#60a5fa"}}/>

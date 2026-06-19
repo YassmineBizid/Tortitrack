@@ -8,6 +8,7 @@ export default function FinancialCard({ data }) {
     blue:  { accent:"#3b82f6", light:"#eff6ff", border:"border-blue-100",    badge:"bg-blue-600 text-white",    barCurr:"#3b82f6", barPrev:"#93c5fd", barYTD:"#8b5cf6" },
     red:   { accent:"#ef4444", light:"#fef2f2", border:"border-red-100",     badge:"bg-red-600 text-white",     barCurr:"#ef4444", barPrev:"#fca5a5", barYTD:"#a78bfa" },
     green: { accent:"#10b981", light:"#f0fdf4", border:"border-emerald-100", badge:"bg-emerald-600 text-white", barCurr:"#10b981", barPrev:"#6ee7b7", barYTD:"#8b5cf6" },
+    yellow:{ accent:"#f59e0b", light:"#fffbeb", border:"border-amber-100",   badge:"bg-amber-600 text-white",   barCurr:"#f59e0b", barPrev:"#fcd34d", barYTD:"#a78bfa" },
   };
   const t = themes[theme] || themes.blue;
   const deltaMoM    = (current - prev) / prev * 100;

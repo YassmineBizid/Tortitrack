@@ -43,6 +43,7 @@ export const STATUTS = {
   rejected_chef_commercial:  { l:"✗ Refusé CC",             c:"#dc2626", bg:"#fef2f2" },
   planned:                   { l:"📅 Planifié",              c:"#2563eb", bg:"#dbeafe" },
   in_production:             { l:"🏭 En production",         c:"#d97706", bg:"#fef3c7" },
+  charged:                   { l:"🚚 Chargé",               c:"#1d4ed8", bg:"#dbeafe" },
   delivered:                 { l:"✓ Livré",                 c:"#059669", bg:"#d1fae5" },
   closed:                    { l:"🔒 Clôturé",              c:"#374151", bg:"#f3f4f6" },
   cancelled:                 { l:"✗ Annulé",                c:"#6b7280", bg:"#f9fafb" },
@@ -56,6 +57,7 @@ export const STATUTS = {
   available:                 { l:"✓ Disponible",            c:"#059669", bg:"#ecfdf5" },
   quarantine:                { l:"⚠ Quarantaine",           c:"#d97706", bg:"#fef3c7" },
   exhausted:                 { l:"— Épuisé",               c:"#9ca3af", bg:"#f9fafb" },
+
 };
 
 export const ROLES_CONFIG = {

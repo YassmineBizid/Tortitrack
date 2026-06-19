@@ -183,6 +183,22 @@ const STATUTS_OBJ_DEPT = {
 
 const TODAY_OBJ = new Date().toISOString().split("T")[0];
 
+function tauxRealisation(obj, realise) {
+  if(realise===null||realise===undefined||!obj.valeurCible) return null;
+  if(obj.type==="maximiser") return +(realise/obj.valeurCible*100).toFixed(1);
+  if(obj.type==="minimiser") return realise===0?100:+(obj.valeurCible/realise*100).toFixed(1);
+  return null;
+}
+
+function niveauRisqueObj(taux, type) {
+  if(taux===null) return {niveau:"inconnu",color:"#94a3b8",bg:"#f1f5f9",label:"Données manquantes"};
+  const t = type==="minimiser" ? taux : taux;
+  if(t>=100) return {niveau:"atteint",    color:"#059669",bg:"#ecfdf5",label:"🏆 Atteint"};
+  if(t>=80)  return {niveau:"en_bonne_voie",color:"#0891b2",bg:"#ecfeff",label:"✅ En bonne voie"};
+  if(t>=60)  return {niveau:"a_risque",   color:"#d97706",bg:"#fef3c7",label:"⚠ À risque"};
+  return       {niveau:"critique",        color:"#dc2626",bg:"#fef2f2",label:"🔴 Critique"};
+}
+
 export default function ObjectifsPage({
   user,
   ctx = {},

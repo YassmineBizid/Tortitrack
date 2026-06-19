@@ -1,19 +1,99 @@
 import { useState } from "react";
 import { Card, Btn, Bdg } from "../components/ui.jsx";
-import { ARTS } from "../data/demoData.js";
+import { ARTS, exportExcel } from "../data/demoData.js";
 import { computeKPICommercial } from "../data/homeUtils.js";
 import AIInsightsWidget from "../components/AIInsightsWidget.jsx";
+import { sb } from "../supabaseClient.js";
+
+
+const reasons = {
+  ECHEC_LIVRAISON: [
+    "Client absent",
+    "Adresse introuvable",
+    "Refus de réception",
+    "Téléphone injoignable",
+    "Accès impossible"
+  ],
+  RECLAMATION_CLIENT: [
+    "Produit endommagé",
+    "Produit manquant",
+    "Erreur de quantité",
+    "Retard de livraison",
+    "Erreur de facturation"
+  ],
+  ANOMALIE_VEHICULE: [
+    "Panne moteur",
+    "Pneu crevé",
+    "Accident",
+    "Problème de carburant",
+    "Maintenance urgente"
+  ]
+};
 
 // ── DashboardCommercialV2 ──────────────────────────────────────────────────
 export default function DashboardCommercialV2({
   user, factures = [], bls = [], brs = [], cpf = [],
-  clients = [], stockCamion = [], prixArticles = [], promotionsList = [], onClose,
+  clients = [], stockCamion = [], prixArticles = [], promotionsList = [], onClose, onNavigate, addAudit,
 }) {
+  const [showModal, setShowModal] = useState(false);
+  const [selectedClient, setSelectedClient] = useState("");
+  const [incidentType, setIncidentType] = useState("");
+  const [selectedReason, setSelectedReason] = useState("");
+  const [commentaire, setCommentaire] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
   const [tab, setTab]          = useState("A");
   const [filterVendeur, setFV] = useState("");
   const [filterZone, setFZ]    = useState("");
   const [filterPeriode, setFP] = useState("mois");
   const [filterGamme, setFG]   = useState("");
+
+  const openIncident = (type) => {
+    setIncidentType(type);
+    setSelectedReason("");
+    setCommentaire(""); 
+    setShowModal(true);
+  };
+
+  const handleSaveIncident = async () => {
+    const { error } = await sb
+      .from("incidents")
+      .insert([
+        {
+          type: incidentType,
+          client_id: selectedClient, 
+          motif: selectedReason,
+          commentaire: commentaire,
+          declare_par: user?.id,
+          declare_par_nom: user?.nom,
+        },
+      ]);
+
+    if (error) {
+      console.error(error);
+      alert("Erreur lors de l'enregistrement : " + error.message);
+      return;
+    }
+
+    addAudit?.(
+      user?.nom,
+      user?.roles?.[0] || "commercial",
+      `INCIDENT_${incidentType}`,
+      "incident",
+      selectedClient,
+      `${selectedReason} — ${commentaire}`
+    );
+
+    setShowModal(false);
+    setSelectedClient("");
+    setSelectedReason("");
+    setCommentaire("");
+
+    setSuccessMessage("✅ Déclaration enregistrée avec succès.");
+
+    setTimeout(() => {
+      setSuccessMessage("");
+    }, 3000);
+  };
 
   const roles      = user.roles;
   const isVendeur  = roles.includes("commercial") && !roles.includes("chef_commercial") && !roles.includes("dg");
@@ -134,6 +214,103 @@ export default function DashboardCommercialV2({
           <Btn variant="secondary" size="sm" onClick={() => exportExcel(K.vendeurs || [], [{key:"nom",label:"Vendeur"},{key:"ca",label:"CA TND",format:"currency"},{key:"caNet",label:"CA Net TND",format:"currency"},{key:"score",label:"Score"}], "perf_commerciale")}>⬇ Excel</Btn>
         </div>
       </div>
+
+      {/* Navigation Modules Commerciaux */}
+      <div className="grid grid-cols-7 gap-3">
+        <button onClick={() => onNavigate && onNavigate("clientpage")} className="flex flex-col items-center gap-2 p-4 rounded-xl border border-gray-200 hover:bg-blue-50 hover:border-blue-300 transition-all">
+          <span className="text-2xl">👥</span>
+          <span className="text-xs font-bold text-gray-700 text-center">Pages Client</span>
+        </button>
+        <button onClick={() => onNavigate && onNavigate("cpf")} className="flex flex-col items-center gap-2 p-4 rounded-xl border border-gray-200 hover:bg-purple-50 hover:border-purple-300 transition-all">
+          <span className="text-2xl">📋</span>
+          <span className="text-xs font-bold text-gray-700 text-center">Commandes PF</span>
+        </button>
+        <button onClick={() => onNavigate && onNavigate("optimisation_tournee")} className="flex flex-col items-center gap-2 p-4 rounded-xl border border-gray-200 hover:bg-green-50 hover:border-green-300 transition-all">
+          <span className="text-2xl">🚗</span>
+          <span className="text-xs font-bold text-gray-700 text-center">Opt. Tournée</span>
+        </button>
+        <button onClick={() => onNavigate && onNavigate("demande_chargement")} className="flex flex-col items-center gap-2 p-4 rounded-xl border border-gray-200 hover:bg-amber-50 hover:border-amber-300 transition-all">
+          <span className="text-2xl">📦</span>
+          <span className="text-xs font-bold text-gray-700 text-center">Demande Chargement</span>
+        </button>
+        <button onClick={() => onNavigate && onNavigate("stock_camion")} className="flex flex-col items-center gap-2 p-4 rounded-xl border border-gray-200 hover:bg-orange-50 hover:border-orange-300 transition-all">
+          <span className="text-2xl">🚚</span>
+          <span className="text-xs font-bold text-gray-700 text-center">Stock Camion</span>
+        </button>
+        <button onClick={() => onNavigate && onNavigate("gestion_commerciale")} className="flex flex-col items-center gap-2 p-4 rounded-xl border border-gray-200 hover:bg-red-50 hover:border-red-300 transition-all">
+          <span className="text-2xl">🤝</span>
+          <span className="text-xs font-bold text-gray-700 text-center">Visite</span>
+        </button>
+        <button onClick={() => openIncident("ANOMALIE_VEHICULE")} className="flex flex-col items-center gap-2 p-4 rounded-xl border border-gray-200 hover:bg-red-50 hover:border-red-300 transition-all">
+          <span className="text-2xl">🚚</span>
+          <span className="text-xs font-bold text-gray-700 text-center">Anomalie véhicule</span>
+        </button>
+      </div>
+
+      {/* Message de succès */}
+      {successMessage && (
+        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-xl">
+          {successMessage}
+        </div>
+      )}
+      {showModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl">
+            <h2 className="text-lg font-bold mb-4">
+              Déclaration d'incident
+            </h2>
+            
+            <select
+              value={selectedClient}
+              onChange={(e) => setSelectedClient(e.target.value)}
+              className="w-full border rounded-lg p-3 mb-3"
+            >
+              <option value="">Sélectionner un client</option>
+              {clients && clients.map((client) => (
+                <option key={client.id} value={client.id}>
+                  {client.nom || client.name}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={selectedReason}
+              onChange={(e) => setSelectedReason(e.target.value)}
+              className="w-full border rounded-lg p-3"
+            >
+              <option value="">Choisir un motif...</option>
+              {reasons[incidentType]?.map((reason) => (
+                <option key={reason} value={reason}>
+                  {reason}
+                </option>
+              ))}
+            </select>
+
+            <textarea
+              value={commentaire}
+              onChange={(e) => setCommentaire(e.target.value)}
+              placeholder="Commentaire..."
+              className="w-full border rounded-lg p-3 mt-3"
+            />
+
+            <div className="flex justify-end gap-2 mt-5">
+              <button
+                onClick={() => setShowModal(false)}
+                className="px-4 py-2 border rounded-lg"
+              >
+                Annuler
+              </button>
+
+              <button
+                onClick={handleSaveIncident}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg"
+              >
+                Enregistrer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Alertes */}
       {alertes.length > 0 && (

@@ -139,41 +139,77 @@ export default function ClientsPage({user, factures =[], addAudit , lots =[], pr
     setToast({ msg: "✗ Client refusé", color: "#dc2626" });
   }
 
-  async function addClient(form) {
-    const nc = {
-      dateCreation: new Date().toISOString().split("T")[0],
-      ...form,
-      terms: parseInt(form.terms) || 30,
-      creditLimit: parseInt(form.creditLimit) || 5000,
-    };
+async function addClient(form, files = []) { 
+    // 💡 Déclare un tableau pour stocker toutes les URLs publiques
+    let uploadedUrls = [];
 
-    const numericFields = [
-      "lat", "lng", "surfaceStockage", "caBoissonsEstime", "caSnacksEstime",
-      "budgetAchatMensuel", "nbCaisses", "nbEmployes", "nbClientJour",
-      "creditLimit", "terms", "freqCommandeJours"
-    ];
+    try {
+      // ÉTAPE 1 : Si des fichiers sont fournis, on fait une boucle d'upload
+      if (files && files.length > 0) {
+        const uploadPromises = files.map(async (file, index) => {
+          const fileExt = file.name.split('.').pop();
+          // Nom unique basé sur le timestamp et l'index de la photo
+          const fileName = `${Date.now()}_${index}_client.${fileExt}`;
+          const filePath = `photos/${fileName}`;
 
-    const clientDB = { ...nc };
-    numericFields.forEach((f) => {
-      clientDB[f] = clientDB[f] === "" || clientDB[f] === undefined ? null : Number(clientDB[f]);
-    });
+          const { error: uploadError } = await sb.storage
+            .from("clients-photos")
+            .upload(filePath, file);
 
-    const { data, error } = await sb
-      .from("clients")
-      .insert([clientDB])
-      .select();
+          if (uploadError) throw new Error(`Erreur upload photo ${index + 1}: ${uploadError.message}`);
 
-    if (error) {
-      console.error("Erreur Supabase:", error);
-      setToast({ msg: "✗ Erreur lors de l'ajout", color: "#dc2626" });
-      return;
+          // Récupération de l'URL publique du fichier
+          const { data: urlData } = sb.storage
+            .from("clients-photos")
+            .getPublicUrl(filePath);
+
+          return urlData.publicUrl;
+        });
+
+        // Attend que tous les uploads se terminent avec succès
+        uploadedUrls = await Promise.all(uploadPromises);
+      }
+
+      // ÉTAPE 2 : Préparation des données du client à insérer
+      const nc = {
+        ...form,
+        terms: parseInt(form.terms) || 30,
+        creditLimit: parseInt(form.creditLimit) || 5000,
+        photo_urls: uploadedUrls // 👈 On enregistre le tableau d'URLs (Préférer un type JSON ou text[] dans Supabase)
+      };
+
+      // Suppression de la clé superflue 'file' si elle provient de NewClientFormV2
+      delete nc.file;
+
+      const numericFields = [
+        "lat", "lng", "surfaceStockage", "caBoissonsEstime", "caSnacksEstime",
+        "budgetAchatMensuel", "nbCaisses", "nbEmployes", "nbClientJour",
+        "creditLimit", "terms", "freqCommandeJours"
+      ];
+
+      const clientDB = { ...nc };
+      numericFields.forEach((f) => {
+        clientDB[f] = clientDB[f] === "" || clientDB[f] === undefined ? null : Number(clientDB[f]);
+      });
+
+      // ÉTAPE 3 : Insertion dans Supabase
+      const { data, error } = await sb
+        .from("clients")
+        .insert([clientDB])
+        .select();
+
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        setClientsAll(cs => [data[0], ...cs]);
+        setToast({ msg: "✅ Client créé avec succès avec ses photos", color: "#059669" });
+      }
+      setShowForm(false);
+
+    } catch (error) {
+      console.error("Erreur complète lors de l'ajout :", error);
+      setToast({ msg: `✗ Erreur : ${error.message || "Ajout impossible"}`, color: "#dc2626" });
     }
-
-    if (data && data.length > 0) {
-      setClientsAll(cs => [data[0], ...cs]);
-      setToast({ msg: "✅ Client créé avec succès", color: "#059669" });
-    }
-    setShowForm(false);
   }
 
   const PCOL = { A: "bg-blue-600", B: "bg-emerald-600", C: "bg-amber-400", D: "bg-gray-400" };

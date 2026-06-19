@@ -137,28 +137,32 @@ sb.from("user_profiles")
     setForm(f => ({ ...f, items: f.items.filter(i => i.id !== id) }));
   };
 
-  const injectCommandeItems = (commande) => {
-    if (!commande || !commande.items) return;
+const injectCommandeItems = (commande) => {
+  if (!commande || !commande.items) return;
+  
+  if (injectedCommandes.includes(commande.id)) {
+    setToast({ msg: "⚠️ Les articles de cette commande ont déjà été ajoutés.", color: "#d97706" });
+    return;
+  }
+  
+  const newItems = commande.items.map((item, idx) => {
+    // 1. On cherche l'article correspondant dans la liste globale
+    const targetArt = artsList.find(a => a.code === item.artCode || a.id === item.artId);
     
-    if (injectedCommandes.includes(commande.id)) {
-      setToast({ msg: "⚠️ Les articles de cette commande ont déjà été ajoutés.", color: "#d97706" });
-      return;
-    }
-    
-    const newItems = commande.items.map((item, idx) => {
-      const targetArt = artsList.find(a => a.code === item.artCode || a.id === item.artId);
-      return {
-        artId: targetArt?.id || item.artId || "",
-        qty: parseInt(item.qty) || 0,
-        lotCode: item.lotCode || "",
-        id: Date.now() + idx
-      };
-    });
+    return {
+      artId: targetArt?.id || item.artId || "",
+      // 2. On ajoute la propriété pour le nom (ex: targetArt.name ou targetArt.libelle selon votre structure)
+      artNom: targetArt?.name || item.artName || "Article inconnu", 
+      qty: parseInt(item.qty) || 0,
+      lotCode: item.lotCode || "",
+      id: Date.now() + idx
+    };
+  });
 
-    setForm(f => ({ ...f, items: [...f.items, ...newItems] }));
-    setInjectedCommandes(prev => [...prev, commande.id]);
-    setToast({ msg: `📥 Articles de la commande ${commande.number} ajoutés !`, color: "#3b82f6" });
-  };
+  setForm(f => ({ ...f, items: [...f.items, ...newItems] }));
+  setInjectedCommandes(prev => [...prev, commande.id]);
+  setToast({ msg: `📥 Articles de la commande ${commande.number} ajoutés !`, color: "#3b82f6" });
+};
 
   const submit = async () => {
     const num = `DC-${TODAY}-${String(saved.length + 1).padStart(3, "0")}`;
@@ -419,10 +423,10 @@ sb.from("user_profiles")
 
           {/* Commandes PF en attente */}
           <Card className="p-4">
-            <div className="text-xs font-bold text-gray-500 uppercase mb-3">Commandes PF planifiées</div>
+            <div className="text-xs font-bold text-gray-500 uppercase mb-3">Commandes PF Disponibles</div>
             <div className="space-y-2 max-h-60 overflow-y-auto">
               {cpf
-                .filter(c => c.status === "planned" || c.status === "planifié")
+                .filter(c => c.status === "available" || c.status === "disponible")
                 .map(c => {
                   const isAlreadyInjected = injectedCommandes.includes(c.id);
                   return (
@@ -448,40 +452,49 @@ sb.from("user_profiles")
                     </div>
                   );
                 })}
-              {cpf.filter(c => c.status === "planned").length === 0 && <div className="text-xs text-gray-400">Aucune commande planifiée</div>}
+              {cpf.filter(c => c.status === "available").length === 0 && <div className="text-xs text-gray-400">Aucune commande planifiée</div>}
             </div>
           </Card>
         </div>
       </div>
 
-      {/* Détail de la commande sélectionnée avec injection */}
-      <Card className="p-4">
-        <div className="flex justify-between items-center mb-3">
-          <div className="text-xs font-bold text-gray-500 uppercase">Articles de la commande sélectionnée</div>
-          {selectedCommande && (
-            <Btn 
-              variant={injectedCommandes.includes(selectedCommande.id) ? "secondary" : "primary"} 
-              size="xs" 
-              disabled={injectedCommandes.includes(selectedCommande.id)}
-              onClick={() => injectCommandeItems(selectedCommande)}
-            >
-              {injectedCommandes.includes(selectedCommande.id) ? "🔒 Déjà ajoutée au chargement" : "📥 Prendre ces articles pour le chargement"}
-            </Btn>
-          )}
-        </div>
+   {/* Détail de la commande sélectionnée avec injection */}
+<Card className="p-4">
+  <div className="flex justify-between items-center mb-3">
+    <div className="text-xs font-bold text-gray-500 uppercase">Articles de la commande sélectionnée</div>
+    {selectedCommande && (
+      <Btn 
+        variant={injectedCommandes.includes(selectedCommande.id) ? "secondary" : "primary"} 
+        size="xs" 
+        disabled={injectedCommandes.includes(selectedCommande.id)}
+        onClick={() => injectCommandeItems(selectedCommande)}
+      >
+        {injectedCommandes.includes(selectedCommande.id) ? "🔒 Déjà ajoutée au chargement" : "📥 Prendre ces articles pour le chargement"}
+      </Btn>
+    )}
+  </div>
 
-        {!selectedCommande ? (
-          <div className="text-xs text-gray-400 py-2">Sélectionnez une commande planifiée ci-dessus pour inspecter ou injecter ses articles</div>
-        ) : (
-          <div className="space-y-1">
-            {(selectedCommande.items || []).map((item, idx) => (
-              <div key={idx} className="flex justify-between py-2 border-b border-gray-100 text-xs">
-                <span className="font-semibold text-gray-700">{item.artCode || item.code || item.artId}</span>
-                <span className="font-bold text-blue-600">{item.qty} pcs</span>
-              </div>
-            ))}
+  {/* --- AJOUT : Liste des articles avec Noms et Quantités --- */}
+  {selectedCommande && selectedCommande.items && selectedCommande.items.length > 0 ? (
+    <div className="space-y-2 mt-2">
+      {selectedCommande.items.map((item, idx) => {
+        // On récupère l'article correspondant dans artsList pour avoir son nom lisible
+        const targetArt = artsList.find(a => a.code === item.artCode || a.id === item.artId);
+        const nomArticle = targetArt?.name || item.artName || "Article inconnu"; // Ajustez ?.name selon votre structure
+
+        return (
+          <div key={idx} className="flex justify-between items-center p-2 bg-gray-50 rounded border border-gray-100 text-sm">
+            <span className="font-medium text-gray-700">{nomArticle}</span>
+            <span className="px-2 py-1 bg-blue-50 text-blue-700 rounded font-bold">
+              Qté : {item.qty}
+            </span>
           </div>
-        )}
+        );
+      })}
+    </div>
+  ) : (
+    selectedCommande && <div className="text-xs text-gray-400 italic">Aucun article dans cette commande.</div>
+  )}
       </Card>
 
       {saved.length > 0 && (

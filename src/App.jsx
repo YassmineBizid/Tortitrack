@@ -44,6 +44,7 @@ import OptimisationTourneeView from "./views/Opt-tournée.jsx";
 import DashboardAchatPage from "./views/DashboardAchatPage.jsx";
 import EvaluationFournisseursPage from "./views/EvaluationFPage.jsx";
 //import NewClientFormV2 from "./views/ficheclient.jsx";
+import FournisseursPage from "./views/Fournisseurs_Module.jsx";
 import FicheClientV2 from "./views/ficheclient.jsx";
 import ClientPage from "./views/ClientPage.jsx"
 import TraitessPage from "./views/TraiteView.jsx";
@@ -52,6 +53,7 @@ import {
   initFactures, initEncaissements, initStockCamion,
   CLIENTS_DATA, ARTS, AUDIT_INIT, QC_INIT, INVENTORY_INIT,
 } from "./data/demoData.js";
+import RapprochementAchatPage from "./views/BCBL.jsx";
 
 // ── Role mapping: DB single-role → app roles array ────────────────
 const ROLE_MAP = {
@@ -92,15 +94,16 @@ const NAV_GROUPS = [
     { id:"requests", label:"Personnel", icon:"👥", roles:[] },
   ]},
   { group:"Commerce", icon:"🛒", items:[
+    { id:"performance",   label:"Dashboard Commercial",        icon:"📊", roles:["dg","finance","dir_commercial","chef_commercial","commercial"] },
+    { id:"clientpage",       label:"Clients",            icon:"🤝", roles:[] },
     { id:"cpf",           label:"Commandes PF",       icon:"📋", roles:[] },
     //{ id:"bl",            label:"Bons de Livraison",  icon:"🚚", roles:[] },
     //{ id:"br",            label:"Bons de Retour",     icon:"↩",  roles:[] },
-    { id:"clients",       label:"Clients",            icon:"🤝", roles:[] },
-    { id:"clientpage",       label:"Clients",            icon:"🤝", roles:[] },
-    { id:"performance",   label:"Performance",        icon:"📊", roles:["dg","finance","dir_commercial","chef_commercial","commercial"] },
-    { id:"demande_chargement", label:"Demande Chargement", icon:"🚛", roles:[] },
-    { id:"gestion_commerciale", label:"Visite", icon:"🛒", roles:[] },
     {id:"optimisation_tournee", label:"Optimisation Tournée", icon:"🗺", roles:[] },
+    { id:"demande_chargement", label:"Demande Chargement", icon:"🚛", roles:[] },
+    { id:"stock_camion",     label:"Stock Camion",      icon:"🚐", roles:[] },
+    { id:"gestion_commerciale", label:"Visite", icon:"🛒", roles:[] },
+
   ]},
   { group:"Production", icon:"🏭", items:[
     { id:"production",         label:"Production",         icon:"⚙",  roles:["dg","chef_usine","operator"] },
@@ -111,8 +114,10 @@ const NAV_GROUPS = [
     { id:"dashboard_achat", label:"Dashboard Achat", icon:"📊", roles:["dg","acheteur"] },
     { id:"achats",       label:"Achats MP",    icon:"📦", roles:["dg","acheteur"] },
     { id:"fournisseurs", label:"Fournisseurs", icon:"🏢", roles:["dg","acheteur"] },
+    { id:"fiche_fournisseur", label:"Fiche Fournisseur", icon:"📋", roles:["dg","acheteur"] },
     { id:"evaluation_fournisseurs", label:"Évaluation Fournisseurs", icon:"⭐", roles:["dg","acheteur"] },
     { id:"reception_mp", label:"Réception MP",    icon:"📦", roles:["dg","acheteur","quality"] },
+    { id:"rapprochement_bc_bl", label:"Rapprochement BC / BL", icon:"🔗", roles:["dg","acheteur","quality"] },
 
   ]},
   { group:"Qualité", icon:"🔬", items:[
@@ -126,8 +131,8 @@ const NAV_GROUPS = [
   ]},
   { group:"Finance", icon:"💰", items:[
     //{ id:"facturation",  label:"Facturation",       icon:"📄", roles:[] },
-    { id:"encaissement", label:"Encaissements",     icon:"💵", roles:[] },
     { id:"finance_dash", label:"Dashboard Finance", icon:"💹", roles:["dg","finance"] },
+    { id:"encaissement", label:"Encaissements",     icon:"💵", roles:[] },
     { id:"traites",      label:"Traites & Échéances", icon:"🗒", roles:["dg","finance"] },
     { id:"traite",      label:"Traites", icon:"🗒", roles:["dg","finance"] },
     { id:"prix",         label:"Tarifs & Prix",     icon:"🏷",  roles:[] },
@@ -135,7 +140,6 @@ const NAV_GROUPS = [
     { id:"cloture_tournee", label:"Clôture Tournée", icon:"✅", roles:["dg","finance","dir_commercial"] },
   ]},
   { group:"Opérations", icon:"🗺", items:[
-    { id:"stock_camion",     label:"Stock Camion",      icon:"🚐", roles:[] },
     { id:"controle_journee", label:"Contrôle Journée",  icon:"📋", roles:["dg","finance","dir_commercial"] },
     { id:"rh",               label:"Ressources Humaines",icon:"👥",roles:["dg","chef_rh","agent_rh"] },
   ]},
@@ -273,7 +277,7 @@ export default function App() {
 
   const renderPage = () => {
     switch (page) {
-      case "home":              return <HomeView {...p} data={{ lots, bls, brs, cpf, cmp, qcControls: QC_INIT, inventory: INVENTORY_INIT }} alerts={alerts} onNavigate={navigate} factures={factures} arts={arts}/>;
+      case "home":              return <HomeView {...p} data={{ lots, bls, brs, cpf, cmp, clients, qcControls: QC_INIT, inventory: INVENTORY_INIT }} alerts={alerts} onNavigate={navigate} factures={factures} arts={arts}/>;
       case "cpf":               return <CommandesPFView {...p} cpf={cpf} setCpf={setCpf} lots={lots} arts={arts} clients={clients}/>;
       //case "bl":                return <BLView {...p} bls={bls} setBls={setBls} lots={lots} setLots={setLots} arts={arts} clients={clients} onSaved={() => reloadSupa(["delivery_orders","production_lots"])}/>;
       //case "br":                return <BRView {...p} brs={brs} setBrs={setBrs} lots={lots} setLots={setLots} arts={arts} clients={clients} onSaved={() => reloadSupa(["return_orders","production_lots"])}/>;
@@ -309,6 +313,8 @@ export default function App() {
       case "traites":           return <TraitesPage {...p} traites={traites} setTraites={setTraites} factures={factures} bls={bls} clients={clients} fournisseurs={fournisseurs} addNotif={() => {}} onSaved={() => reloadSupa(["traites"])}/>
       case "settings":          return <SettingsView user={user} toast={() => {}}/>;  
       case "new_client":      return <FicheClientV2 onSave={() => {}} users={[]} />;
+      case "rapprochement_bc_bl": return <RapprochementAchatPage {...p} cmp={cmp} receptions={receptions}/>;
+      case "fiche_fournisseur": return <FournisseursPage {...p} f={null} allF={fournisseurs} addAudit={addAudit}/>;
       case "traite":           return <TraitessPage {...p} traites={traites} setTraites={setTraites} factures={factures} bls={bls} clients={clients} fournisseurs={fournisseurs} addNotif={() => {}} onSaved={() => reloadSupa(["traites"])}/>;
       case "clientpage":      return <ClientPage clients={clients} setClients={setClients} addAudit={addAudit} factures={factures} bls={bls} onSaved={() => reloadSupa(["clients","factures","delivery_orders"])}/>;
       case "objectifs":         return <ObjectifsPage {...p} objectifsDG={[]} setObjectifsDG={() => {}} objectifsDept={[]} setObjectifsDept={() => {}} objectifsInt={[]} setObjectifsInt={() => {}}/>;

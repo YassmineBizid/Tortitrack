@@ -3,16 +3,7 @@ import { Card, Btn, Modal, Input, Select, Textarea, Bdg, Field, Toast } from "..
 import { exportExcel, PhotoCapture } from "../components/shared.jsx";
 import { sb } from "../supabaseClient.js";
 
-// ╔══════════════════════════════════════════════════════════╗
-// ║  MODULE TRAITES & ÉCHÉANCES — كمبيالة                    ║
-// ╚══════════════════════════════════════════════════════════╝
 
-// ╔═══════════════════════════════════════════════════════════════╗
-// ║  MODULE GESTION DES TRAITES & ÉCHÉANCES — KEMBIALA كمبيالة  ║
-// ║  Finance opère · DG consulte · Intégré aux modules existants  ║
-// ╚═══════════════════════════════════════════════════════════════╝
-
-// ─── Conversion montant en lettres (Dinar Tunisien + Millimes) ──
 function convertirEnLettres(montant) {
   if (!montant || isNaN(montant) || montant <= 0) return "";
   const dinars   = Math.floor(montant);
@@ -603,7 +594,7 @@ function TraitesPage({user, traites, setTraites, factures, bls, clients=[], four
         devise:         t.devise || "TND",
         date_creation:  t.dateCreation || null,
         date_reception: t.dateReception || null,
-        date_echeance:  t.dateEcheance,
+        dateEcheance:  t.dateEcheance,
         lieu:           t.lieu || null,
         banque:         t.banque || null,
         rib:            t.rib || null,

@@ -43,7 +43,7 @@ function CreateFactureWizard({ onSave, onClose, user, clientsList = [] }) {
     ? clientsList.map(c => ({ id: c.id, nom: c.name, canal: c.type || "Client", credit: c.terms || 0 }))
     : CLIENTS_FACTURATION;
   const [step, setStep] = useState(1);
-  const [f, setF] = useState({ clientId:"", blRef:"", items:[], modePaiement:"especes", montantPaye:"", notes:"" });
+  const [f, setF] = useState({ clientId:"", blRefs:[""], items:[], modePaiement:"especes", montantPaye:"", notes:"" });
 
   const client = displayClients.find(c => c.id === f.clientId);
   const totalHT  = f.items.reduce((s,i) => s + (parseFloat(i.prixU)||0) * (parseInt(i.qty)||0), 0);
@@ -64,37 +64,121 @@ function CreateFactureWizard({ onSave, onClose, user, clientsList = [] }) {
   const montantRestant = Math.max(0, totalTTC - montantPaye);
   const status = f.modePaiement === "credit" ? "credit" : montantPaye >= totalTTC ? "payee" : montantPaye > 0 ? "partiellement" : "emise";
 
-  return (
-    <div className="space-y-4">
-      {/* Steps indicator */}
-      <div className="flex items-center gap-2 text-xs">
-        {["Client","Articles","Paiement","Confirmation"].map((s,i) => (
-          <div key={s} className="flex items-center gap-2">
-            <div className={`w-6 h-6 rounded-full flex items-center justify-center font-bold ${step>i+1?"bg-green-500 text-white":step===i+1?"bg-blue-600 text-white":"bg-gray-200 text-gray-400"}`}>{step>i+1?"✓":i+1}</div>
-            <span className={step===i+1?"text-blue-700 font-bold":"text-gray-400"}>{s}</span>
-            {i<3&&<span className="text-gray-300">→</span>}
+
+return (
+  <div className="space-y-4">
+    {/* Steps indicator */}
+    <div className="flex items-center gap-2 text-xs">
+      {["Client", "Articles", "Paiement", "Confirmation"].map((s, i) => (
+        <div key={s} className="flex items-center gap-2">
+          <div
+            className={`w-6 h-6 rounded-full flex items-center justify-center font-bold ${
+              step > i + 1
+                ? "bg-green-500 text-white"
+                : step === i + 1
+                ? "bg-blue-600 text-white"
+                : "bg-gray-200 text-gray-400"
+            }`}
+          >
+            {step > i + 1 ? "✓" : i + 1}
           </div>
+
+          <span
+            className={
+              step === i + 1
+                ? "text-blue-700 font-bold"
+                : "text-gray-400"
+            }
+          >
+            {s}
+          </span>
+
+          {i < 3 && <span className="text-gray-300">→</span>}
+        </div>
+      ))}
+    </div>
+
+    {step === 1 && (
+  <div className="space-y-4">
+    <div>
+      <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-2">
+        Client *
+      </label>
+
+      <div className="grid grid-cols-2 gap-2">
+        {displayClients.map((c) => (
+          <button
+            key={c.id}
+            onClick={() => setF((x) => ({ ...x, clientId: c.id }))}
+            className={`p-3 rounded-xl border-2 text-left text-xs transition-all ${
+              f.clientId === c.id
+                ? "border-blue-500 bg-blue-50"
+                : "border-gray-200 hover:border-gray-300"
+            }`}
+          >
+            <div className="font-bold">{c.nom}</div>
+            <div className="text-gray-400">
+              {c.canal} · crédit {c.credit}j
+            </div>
+          </button>
         ))}
       </div>
+    </div>
 
-      {step === 1 && (
-        <div className="space-y-3">
-          <div>
-            <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-2">Client *</label>
-            <div className="grid grid-cols-2 gap-2">
-              {displayClients.map(c => (
-                <button key={c.id} onClick={() => setF(x=>({...x,clientId:c.id}))} className={`p-3 rounded-xl border-2 text-left text-xs transition-all ${f.clientId===c.id?"border-blue-500 bg-blue-50":"border-gray-200 hover:border-gray-300"}`}>
-                  <div className="font-bold">{c.nom}</div>
-                  <div className="text-gray-400">{c.canal} · crédit {c.credit}j</div>
-                </button>
-              ))}
-            </div>
-          </div>
-          <Input label="Référence BL (optionnel)" value={f.blRef} onChange={e => setF(x=>({...x,blRef:e.target.value}))} placeholder="BL-XXXX"/>
-          <Btn variant="primary" className="w-full" disabled={!f.clientId} onClick={() => setStep(2)}>Suivant →</Btn>
+    <div>
+      <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-2">
+        Références BL (optionnel)
+      </label>
+
+      {f.blRefs.map((bl, index) => (
+        <div key={index} className="flex gap-2 mb-2">
+          <Input
+            value={bl}
+            onChange={(e) => {
+              const arr = [...f.blRefs];
+              arr[index] = e.target.value;
+              setF((x) => ({ ...x, blRefs: arr }));
+            }}
+            placeholder={`BL-${index + 1}`}
+          />
+
+          {f.blRefs.length > 1 && (
+            <Btn
+              variant="danger"
+              onClick={() => {
+                const arr = f.blRefs.filter((_, i) => i !== index);
+                setF((x) => ({ ...x, blRefs: arr }));
+              }}
+            >
+              ✕
+            </Btn>
+          )}
         </div>
-      )}
+      ))}
 
+      <Btn
+        variant="secondary"
+        onClick={() =>
+          setF((x) => ({
+            ...x,
+            blRefs: [...x.blRefs, ""],
+          }))
+        }
+      >
+        + Ajouter un BL
+      </Btn>
+    </div>
+
+    <Btn
+      variant="primary"
+      className="w-full"
+      disabled={!f.clientId}
+      onClick={() => setStep(2)}
+    >
+      Suivant →
+    </Btn>
+  </div>
+)}
       {step === 2 && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">

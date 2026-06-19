@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Card, Btn, Modal, Input, Select, Textarea, Toast, Bdg, ExportFullMenu } from "../components/ui.jsx";
-import { CLIENTS_DATA, fmt, daysUntil, TODAY } from "../data/demoData.js";
+import { fmt, daysUntil, TODAY } from "../data/demoData.js";
 import { scoreProfilClient } from "../components/FormClient.jsx";
 
 
@@ -84,7 +84,7 @@ function recommanderCommandeIA({client:c={}, factures=[], lots=[], promotions=[]
     const freq   = c.freqCommandeJours||14;
     const stock  = lots.filter(l=>l.artId===art.id&&l.status==="available").reduce((s,l)=>s+(l.availQty||0),0);
     const promo  = promotions.find(p=>(p.artIds||[]).includes(art.id)&&p.statut==="actif");
-    let  qteReco = Math.round(qteMoy * (1 + (promo?0.20:0)));
+    let   qteReco = Math.round(qteMoy * (1 + (promo?0.20:0)));
     const confiance = artFacs.length>=5?"Haute":artFacs.length>=3?"Moyenne":"Faible";
     const raison = [
       `Moyenne historique : ${Math.round(qteMoy)} pcs`,
@@ -167,6 +167,7 @@ export function ProfilBadge({client}) {
 // ─── Fiche Client v2 ──────────────────────────────────────────────────
 export function FicheClientV2({client: rawClient={}, factures=[], lots=[], promotions=[], addAudit , onClose}) {
   const [tabFiche, setTabFiche] = useState("overview");
+  const [activePhoto, setActivePhoto] = useState(null); // État pour ouvrir une photo en grand
 
   // 🔌 ADAPTATEUR DOUBLE DIRECTION (Gère parfaitement Supabase + Local)
   const c = {
@@ -200,9 +201,11 @@ export function FicheClientV2({client: rawClient={}, factures=[], lots=[], promo
     instagram: rawClient.instagram,
     risqueImpaye: rawClient.risqueImpaye || rawClient.risque_impaye,
     toleranceDLC: rawClient.toleranceDLC || rawClient.tolerance_dlc,
-    zone: rawClient.zone || "", // Prise en compte de la colonne 'zone' de ta table client Supabase
+    zone: rawClient.zone || "", 
     produits: rawClient.produits || [],
-    concurrentsPresents: rawClient.concurrentsPresents || rawClient.concurrents_presents || []
+    concurrentsPresents: rawClient.concurrentsPresents || rawClient.concurrents_presents || [],
+    // 📷 Récupération de la colonne photo_urls (ou tableau vide si inexistant)
+    photoUrls: rawClient.photo_urls || rawClient.photoUrls || []
   };
 
   const profil      = scoreProfilClient(c) || { manquantsOblig: [], manquantsImport: [] };
@@ -210,7 +213,15 @@ export function FicheClientV2({client: rawClient={}, factures=[], lots=[], promo
   const analyse     = analyseIAClient({client:c, factures, lots}) || { potentiel: { actuel: 0, estime: 0, pct: null }, opps: [], risques: [], recommandations: [], varCA: null };
   const cmdIA       = recommanderCommandeIA({client:c, factures, lots, promotions}) || [];
 
-  const TABS_F    = [["overview","Vue d'ensemble"],["profil","Profil complet"],["ia","Analyse IA"],["commande","Commande IA"]];
+  // 📝 Liste des onglets comprenant le nouvel onglet Photos avec compteur dynamique
+  const TABS_F      = [
+    ["overview","Vue d'ensemble"],
+    ["profil","Profil complet"],
+    ["photos", `🖼 Photos (${c.photoUrls.length})`],
+    ["ia","Analyse IA"],
+    ["commande","Commande IA"]
+  ];
+  
   const FLD=({l,v,col})=><div><div className="text-gray-400 text-xs font-semibold uppercase">{l}</div><div className={`font-bold mt-0.5 text-sm ${col||""}`}>{v||<span className="text-gray-300 italic text-xs">—</span>}</div></div>;
 
   return (
@@ -249,7 +260,7 @@ export function FicheClientV2({client: rawClient={}, factures=[], lots=[], promo
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 overflow-x-auto">
+      <div className="flex gap-1 overflow-x-auto pb-1">
         {TABS_F.map(([id,l])=>(
           <button key={id} onClick={()=>setTabFiche(id)} className={`px-3 py-2 rounded-xl text-xs font-bold border whitespace-nowrap min-h-[36px] flex-1 transition-all ${tabFiche===id?"bg-blue-600 text-white border-blue-600":"bg-white text-gray-500 border-gray-200"}`}>{l}</button>
         ))}
@@ -318,6 +329,34 @@ export function FicheClientV2({client: rawClient={}, factures=[], lots=[], promo
         <FLD l="Tolérance DLC" v={c.toleranceDLC}/>
       </div>}
 
+      {/* ── 🖼 Onglet Photos (Ajouté) ── */}
+      {tabFiche==="photos"&&<div className="space-y-3">
+        <div className="text-xs font-bold text-gray-400 uppercase">Galerie Photos du Client</div>
+        
+        {c.photoUrls.length === 0 ? (
+          <div className="text-center py-10 bg-gray-50 rounded-2xl border border-dashed border-gray-200 text-gray-400 text-sm">
+            📸 Aucune photo enregistrée pour ce client.
+          </div>
+        ) : (
+          <div className="grid grid-cols-3 gap-2">
+            {c.photoUrls.map((url, i) => (
+              <div 
+                key={i} 
+                onClick={() => setActivePhoto(url)}
+                className="aspect-square bg-gray-100 rounded-xl overflow-hidden border border-gray-200 cursor-pointer hover:opacity-90 active:scale-95 transition-all shadow-sm"
+              >
+                <img 
+                  src={url} 
+                  alt={`Magasin ${i+1}`} 
+                  className="w-full h-full object-cover"
+                  loading="lazy"
+                />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>}
+
       {/* ── Analyse IA ── */}
       {tabFiche==="ia"&&<div className="space-y-3">
         {/* Potentiel */}
@@ -372,12 +411,32 @@ export function FicheClientV2({client: rawClient={}, factures=[], lots=[], promo
         {(c.phone||c.whatsapp)&&<a href={`https://wa.me/${(c.whatsapp||c.phone).replace(/\D/g,"")}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 bg-green-500 text-white px-4 py-2.5 rounded-xl text-sm font-bold min-h-[44px]">📱 WhatsApp</a>}
         {c.email&&<a href={`mailto:${c.email}`} className="flex items-center gap-2 bg-blue-500 text-white px-4 py-2.5 rounded-xl text-sm font-bold min-h-[44px]">📧 Email</a>}
       </div>
+
+      {/* 🔍 Lightbox / Modal plein écran pour zoomer sur une photo */}
+      {activePhoto && (
+        <div 
+          className="fixed inset-0 bg-black/90 z-50 flex flex-col items-center justify-center p-4 transition-all animate-fade-in"
+          onClick={() => setActivePhoto(null)}
+        >
+          <button 
+            className="absolute top-4 right-4 bg-white/10 hover:bg-white/20 text-white text-xl rounded-full w-10 h-10 flex items-center justify-center font-bold backdrop-blur"
+            onClick={() => setActivePhoto(null)}
+          >
+            ✕
+          </button>
+          <img 
+            src={activePhoto} 
+            alt="Zoom magasin" 
+            className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl"
+          />
+        </div>
+      )}
     </div>
   );
 }
 
 // ─── Alertes profil incomplets ────────────────────────────────────────
-function genAlertesProfilClients({clients=[]}) {
+export function genAlertesProfilClients({clients=[]}) {
   const today = new Date();
   return clients.filter(c=>c.status==="validated").flatMap(c=>{
     const p    = scoreProfilClient(c);
@@ -389,18 +448,4 @@ function genAlertesProfilClients({clients=[]}) {
       as.push({clientId:c.id,clientNom:c.name,sev:jours>=14?"haut":"moyen",msg:`Infos importantes manquantes (${jours}j) — ${p.manquantsImport.slice(0,3).join(", ")}`,action:jours>=14?"Chef Commercial alerté":"Compléter avant J+14"});
     return as;
   });
-
-
-
-  return (
-    <div className="relative">
-      <Btn variant="secondary" size="sm" onClick={()=>setOpen(v=>!v)}>⬇ Exporter ▾</Btn>
-      {open&&<div className="absolute right-0 top-full mt-1 bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden z-30 min-w-[180px]" onClick={e=>e.stopPropagation()}>
-        {actions.map(a=>(
-          <button key={a.label} onClick={a.onClick} className="w-full text-left px-4 py-3 text-sm font-semibold hover:bg-blue-50 transition-colors border-b border-gray-50 last:border-0">{a.label}</button>
-        ))}
-        <button onClick={()=>setOpen(false)} className="w-full text-left px-4 py-2 text-xs text-gray-400 hover:bg-gray-50">Fermer</button>
-      </div>}
-    </div>
-  );
 }

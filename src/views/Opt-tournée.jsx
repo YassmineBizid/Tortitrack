@@ -44,15 +44,15 @@ export default function OptimisationTourneeView({ user }) {
             const estAujourdhui = dateNettoye === TODAY;
 
             const statutNettoye = typeof c.status === "string" ? c.status.trim().toLowerCase() : "";
-            const estPlanifie = statutNettoye === "planned" || statutNettoye === "planifié" || statutNettoye === "planned_pf";
+            const estChargé= statutNettoye === "charged" || statutNettoye === "chargé";
 
-            return estPlanifie && estAujourdhui;
+            return estChargé && estAujourdhui;
           });
 
           if (classees.length === 0) {
             classees = data.filter(c => {
               const statutNettoye = typeof c.status === "string" ? c.status.trim().toLowerCase() : "";
-              return statutNettoye === "planned" || statutNettoye === "planifié" || statutNettoye === "planned_pf";
+              return statutNettoye === "charged" || statutNettoye === "chargé";
             });
           }
 
@@ -117,7 +117,7 @@ export default function OptimisationTourneeView({ user }) {
 
         {commandesDuJour.length === 0 ? (
           <div className="text-center py-8 text-sm text-gray-400 bg-gray-50 rounded-xl border border-dashed">
-            Aucune commande planifiée trouvée pour aujourd'hui.
+            Aucune commande disponible trouvée pour aujourd'hui.
           </div>
         ) : tourneeOptimisee.length === 0 ? (
           <div className="space-y-2">
