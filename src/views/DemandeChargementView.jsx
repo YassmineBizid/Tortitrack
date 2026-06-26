@@ -25,6 +25,7 @@ export default function DemandeChargementView({ user, cpf, lots = [], addAudit, 
   const [form, setForm] = useState({ date: TODAY, heure: "08:00", vehiculeId: "", conducteurId: "", conducteur: "", items: [], notes: "" });
   const [vendors, setVendors] = useState([]); // Contiendra désormais les profils de user_profiles (commerciaux)
   const [fleet, setFleet] = useState([]);
+  const [articlesDB, setArticlesDB] = useState([]); // Articles chargés depuis Supabase
   const [showIA, setShowIA] = useState(false);
   const [saved, setSaved] = useState([]);
   const [toast, setToast] = useState(null);
@@ -35,7 +36,19 @@ export default function DemandeChargementView({ user, cpf, lots = [], addAudit, 
   const isCommercialUser = user?.roles?.includes("commercial") || user?.roles?.includes("chef_commercial");
 
   useEffect(() => {
-    // 👥 Récupération des vendeurs depuis user_profiles ayant le rôle commercial ou chef_commercial
+    // � Chargement des articles depuis Supabase pour avoir les vrais IDs
+    sb.from("products")
+      .select("id, barcode, ref, name")
+      .order("ref")
+      .then(({ data, error }) => {
+        if (!error && data) {
+          setArticlesDB(data);
+        } else if (error) {
+          console.error("Erreur chargement articles:", error);
+        }
+      });
+
+    // �� Récupération des vendeurs depuis user_profiles ayant le rôle commercial ou chef_commercial
 sb.from("user_profiles")
     .select("id, full_name, role")
     .in("role", ["commercial", "chef_commercial"]) // 👈 Utilisation de .in() au lieu du .or() complexe
@@ -71,27 +84,52 @@ sb.from("user_profiles")
         }
       });
 
-    sb.from("demandes_chargement")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(50)
-      .then(({ data, error }) => {
-        if (!error && data) {
-          setSaved(data.map(r => ({
+    // Charger les chargements et leurs articles associés
+    Promise.all([
+      sb.from("demandes_chargement")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(50),
+      sb.from("stock_camion")
+        .select("*")
+        .order("created_at", { ascending: false })
+    ]).then(([{ data: dcData, error: dcError }, { data: scData, error: scError }]) => {
+      if (!dcError && dcData) {
+        const stockMap = {};
+        if (!scError && scData) {
+          // Créer un map pour accéder rapidement aux articles par conducteur + véhicule + date
+          scData.forEach(item => {
+            const key = `${item.vendeur}_${item.vehicule}_${item.date}`;
+            if (!stockMap[key]) stockMap[key] = [];
+            stockMap[key].push({
+              artId: item.art_id,
+              artName: item.art_code || "",
+              qty: item.qte_chargee || 0,
+              lotCode: item.lot_id || "",
+              id: item.id
+            });
+          });
+        }
+        
+        setSaved(dcData.map(r => {
+          const key = `${r.conducteur}_${r.vehicule}_${r.date}`;
+          return {
             id: r.id,
             num: r.number,
             date: r.date,
             heure: r.heure || "08:00",
             vehicule: r.vehicule || "",
             conducteur: r.conducteur || "",
+            conducteurId: r.conducteur_id,
             totalPcs: r.total_pcs || 0,
             totalKg: r.total_kg || 0,
             tauxKg: r.taux_kg || 0,
             status: r.status || "confirmé",
-            items: [],
-          })));
-        }
-      });
+            items: stockMap[key] || [],
+          };
+        }));
+      }
+    });
   }, []);
 
   // 🔐 Sécurité & Assignation Automatique : Si l'user actif est commercial/chef, il s'auto-assigne
@@ -165,10 +203,36 @@ const injectCommandeItems = (commande) => {
 };
 
   const submit = async () => {
-    const num = `DC-${TODAY}-${String(saved.length + 1).padStart(3, "0")}`;
+    // Générer un numéro unique basé sur timestamp + random (plus fiable que saved.length)
+    const timestamp = Date.now();
+    const randomSuffix = Math.floor(Math.random() * 10000).toString().padStart(4, "0");
+    const num = `DC-${TODAY}-${randomSuffix}-${timestamp}`;
     
-    const finalConducteurName = isCommercialUser ? user.nom : (selectedVendor?.name || form.conducteur);
-    const finalConducteurId = isCommercialUser ? (vendors.find(v => v.name?.toLowerCase() === user.nom?.toLowerCase())?.id || user.id) : form.conducteurId;
+    // Validation d'UUID - Fonction réutilisable
+    const isUUID = s => s && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+    
+    // Déterminer le conducteur avec validation d'UUID
+    let finalConducteurId = "";
+    let finalConducteurName = "";
+    
+    if (isCommercialUser) {
+      // Chercher le commercial dans vendors
+      const matchedVendor = vendors.find(v => v.id === user.id) || vendors.find(v => v.name?.toLowerCase() === user.nom?.toLowerCase());
+      if (matchedVendor && isUUID(matchedVendor.id)) {
+        finalConducteurId = matchedVendor.id;
+        finalConducteurName = matchedVendor.name;
+      } else {
+        setToast({ msg: "⚠️ Impossible de trouver votre profil commercial dans le système", color: "#dc2626" });
+        return;
+      }
+    } else {
+      if (!form.conducteurId || !isUUID(form.conducteurId)) {
+        setToast({ msg: "⚠️ Veuillez sélectionner un commercial valide", color: "#dc2626" });
+        return;
+      }
+      finalConducteurId = form.conducteurId;
+      finalConducteurName = selectedVendor?.name || form.conducteur;
+    }
 
     const dc = { 
       id: `DC-${Date.now()}`, 
@@ -204,8 +268,6 @@ const injectCommandeItems = (commande) => {
     setInjectedCommandes([]);
 
     try {
-      const isUUID = s => s && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
-      
       await sb.from("demandes_chargement").insert({
         number: num,
         date: form.date || TODAY,
@@ -213,38 +275,15 @@ const injectCommandeItems = (commande) => {
         vehicule: vehicle?.immat || "",
         vehicule_id: form.vehiculeId || null,
         conducteur: finalConducteurName,
-        conducteur_id: isUUID(finalConducteurId) ? finalConducteurId : null,
+        conducteur_id: (finalConducteurId && isUUID(finalConducteurId)) ? finalConducteurId : null,
         total_pcs: totalPcs,
         total_kg: totalKg,
         taux_kg: tauxKg,
         notes: form.notes || null,
         status: "confirmé",
         created_by: user.nom,
-        operator_id: isUUID(user?.id) ? user.id : null,
       });
 
-      const scRows = form.items
-        .filter(item => item.artId && parseInt(item.qty) > 0)
-        .map(item => {
-          const a = artsList.find(x => x.id === item.artId);
-          return {
-            conducteur: finalConducteurName,
-            vehicule: vehicle?.immat || "",
-            art_id: item.artId || null,
-            art_code: a?.code || item.artId || "",
-            lot: item.lotCode || null,
-            qte_chargee: parseInt(item.qty) || 0,
-            qte_vendue: 0,
-            qte_retour: 0,
-            date: form.date || TODAY,
-            operator_id: isUUID(user?.id) ? user.id : null,
-          };
-        });
-
-      if (scRows.length) {
-        const { error: scErr } = await sb.from("stock_camion").insert(scRows);
-        if (scErr) console.error("[submit] stock_camion error →", scErr);
-      }
       if (onSaved) onSaved();
     } catch (e) {
       console.error("[DemandeChargement] network error →", e);
@@ -265,19 +304,66 @@ const injectCommandeItems = (commande) => {
     }).filter(s => s.suggested > 0);
   };
 
-  const validateChargement = async (id, num) => {
+  const validateChargement = async (dc) => {
     setSaved(current => 
-      current.map(dc => dc.id === id ? { ...dc, status: "validé" } : dc)
+      current.map(item => item.id === dc.id ? { ...item, status: "validé" } : item)
     );
     
-    setToast({ msg: `🚀 Chargement ${num} validé définitivement !`, color: "#059689" });
+    setToast({ msg: `🚀 Chargement ${dc.num} validé définitivement !`, color: "#059689" });
     
     try {
+      // ✅ Mettre à jour le statut dans demandes_chargement
       await sb.from("demandes_chargement")
         .update({ status: "validé" })
-        .eq("number", num); 
+        .eq("number", dc.num); 
+
+      // ✅ Insérer les articles du chargement validé dans stock_camion
+      const isUUID = s => s && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+      
+      const scRows = (dc.items || [])
+        .map(item => {
+          // Chercher l'article dans artsList (pour le code)
+          const artFromList = artsList.find(x => x.id === item.artId);
+          // Chercher l'article dans la BD Supabase par code ou par ID direct
+          const artFromDB = articlesDB.find(x => 
+            x.id === item.artId || 
+            (artFromList && (x.code === artFromList.code || x.id === artFromList.id))
+          );
+          
+          if (!artFromDB) {
+            console.warn("[validateChargement] Article non trouvé en BD:", item.artId, artFromList);
+            return null;
+          }
+          
+          return {
+            vendeur: dc.conducteur,
+            vehicule: dc.vehicule || "",
+            art_id: artFromDB.id, // ID réel de la table articles en Supabase
+            lot_id: item.lotCode || null,
+            qte_chargee: parseInt(item.qty) || 0,
+            qte_vendue: 0,
+            qte_retour: 0,
+            date: dc.date,
+            vendeur_id: dc.conducteurId || null,
+          };
+        })
+        .filter(row => row !== null && parseInt(row.qte_chargee) > 0);
+
+      if (scRows.length) {
+        console.log("[validateChargement] Inserting to stock_camion:", scRows); // Debug log
+        const { error: scErr } = await sb.from("stock_camion").insert(scRows);
+        if (scErr) {
+          console.error("[validateChargement] stock_camion error →", scErr);
+          setToast({ msg: `⚠️ Erreur lors de l'enregistrement du stock du camion`, color: "#dc2626" });
+        } else {
+          setToast({ msg: `✅ ${scRows.length} article(s) enregistré(s) dans le stock du camion`, color: "#059689" });
+        }
+      } else {
+        setToast({ msg: `⚠️ Aucun article à enregistrer pour ce chargement`, color: "#d97706" });
+      }
     } catch (e) {
-      console.error("Erreur lors de la validation du chargement dans la base :", e);
+      console.error("[validateChargement] error →", e);
+      setToast({ msg: `⚠️ Erreur lors de la validation du chargement`, color: "#dc2626" });
     }
   };
 
@@ -369,16 +455,27 @@ const injectCommandeItems = (commande) => {
             </div>
             {form.items.length === 0 && <div className="text-center text-gray-400 py-4 bg-gray-50 rounded-xl text-sm">Ajoutez des articles à charger</div>}
             
-            {form.items.map(item => (
-              <div key={item.id} className="flex gap-3 items-end p-3 bg-gray-50 rounded-xl">
-                <div className="flex-1">
+            {form.items.map(item => {
+              const lotsForArt = availLots.filter(l => l.artId === item.artId);
+              return (
+              <div key={item.id} className="flex gap-3 items-end p-3 bg-gray-50 rounded-xl flex-wrap">
+                <div className="flex-1 min-w-[160px]">
                   <label className="text-xs font-bold text-gray-500 block mb-1">Article</label>
-                  <select value={item.artId} onChange={e => updateItem(item.id, "artId", e.target.value)} className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none bg-white">
+                  <select value={item.artId} onChange={e => { updateItem(item.id, "artId", e.target.value); updateItem(item.id, "lotCode", ""); }} className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none bg-white">
                     <option value="">Sélectionner...</option>
                     {artsList.map(a => {
                       const dispo = availLots.filter(l => l.artId === a.id).reduce((s, l) => s + l.availQty, 0);
                       return <option key={a.id} value={a.id}>{a.code} — {dispo.toLocaleString()} pcs dispo</option>;
                     })}
+                  </select>
+                </div>
+                <div className="w-44">
+                  <label className="text-xs font-bold text-gray-500 block mb-1">Lot *</label>
+                  <select value={item.lotCode} onChange={e => updateItem(item.id, "lotCode", e.target.value)} className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none bg-white">
+                    <option value="">Sélectionner un lot...</option>
+                    {lotsForArt.map(l => (
+                      <option key={l.id} value={l.id}>{l.lotNum} — DLC: {l.dlc}</option>
+                    ))}
                   </select>
                 </div>
                 <div className="w-28">
@@ -387,7 +484,8 @@ const injectCommandeItems = (commande) => {
                 </div>
                 <button onClick={() => removeItem(item.id)} className="w-8 h-8 bg-red-100 hover:bg-red-200 text-red-600 rounded-xl flex items-center justify-center">✕</button>
               </div>
-            ))}
+              );
+            })}
 
             <Textarea label="Notes" value={form.notes} onChange={e => up("notes", e.target.value)} placeholder="Instructions particulières..." />
 
@@ -519,7 +617,7 @@ const injectCommandeItems = (commande) => {
                     <Btn 
                       variant="success" 
                       size="xs" 
-                      onClick={() => validateChargement(dc.id, dc.num)}
+                      onClick={() => validateChargement(dc)}
                     >
                       ⚡ Confirmer & Clôturer
                     </Btn>

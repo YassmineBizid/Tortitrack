@@ -42,6 +42,7 @@ export default function GestionCommercialeHub({
   setBrs,
   factures,
   setFactures,
+  brands = [],
   onSaved
 }) {
   const [activeTab, setActiveTab] = useState("bl");
@@ -249,6 +250,7 @@ export default function GestionCommercialeHub({
             user={user}
             arts={arts}
             clients={clients}
+            brands={brands}
             addAudit={addAudit}
             bls={bls}
             setBls={setBls}

@@ -55,6 +55,7 @@ import {
 } from "./data/demoData.js";
 import RapprochementAchatPage from "./views/BCBL.jsx";
 
+
 // ── Role mapping: DB single-role → app roles array ────────────────
 const ROLE_MAP = {
   dg:                 ["dg","admin"],
@@ -97,8 +98,6 @@ const NAV_GROUPS = [
     { id:"performance",   label:"Dashboard Commercial",        icon:"📊", roles:["dg","finance","dir_commercial","chef_commercial","commercial"] },
     { id:"clientpage",       label:"Clients",            icon:"🤝", roles:[] },
     { id:"cpf",           label:"Commandes PF",       icon:"📋", roles:[] },
-    //{ id:"bl",            label:"Bons de Livraison",  icon:"🚚", roles:[] },
-    //{ id:"br",            label:"Bons de Retour",     icon:"↩",  roles:[] },
     {id:"optimisation_tournee", label:"Optimisation Tournée", icon:"🗺", roles:[] },
     { id:"demande_chargement", label:"Demande Chargement", icon:"🚛", roles:[] },
     { id:"stock_camion",     label:"Stock Camion",      icon:"🚐", roles:[] },
@@ -108,13 +107,13 @@ const NAV_GROUPS = [
   { group:"Production", icon:"🏭", items:[
     { id:"production",         label:"Production",         icon:"⚙",  roles:["dg","chef_usine","operator"] },
     { id:"planning",           label:"Planning",           icon:"📅", roles:["dg","chef_usine","logistics"] },
+   
     
   ]},
   { group:"Achats", icon:"🛍", items:[
     { id:"dashboard_achat", label:"Dashboard Achat", icon:"📊", roles:["dg","acheteur"] },
     { id:"achats",       label:"Achats MP",    icon:"📦", roles:["dg","acheteur"] },
-    { id:"fournisseurs", label:"Fournisseurs", icon:"🏢", roles:["dg","acheteur"] },
-    { id:"fiche_fournisseur", label:"Fiche Fournisseur", icon:"📋", roles:["dg","acheteur"] },
+    { id:"fiche_fournisseur", label:"Fournisseurs", icon:"🏢", roles:["dg","acheteur"] },
     { id:"evaluation_fournisseurs", label:"Évaluation Fournisseurs", icon:"⭐", roles:["dg","acheteur"] },
     { id:"reception_mp", label:"Réception MP",    icon:"📦", roles:["dg","acheteur","quality"] },
     { id:"rapprochement_bc_bl", label:"Rapprochement BC / BL", icon:"🔗", roles:["dg","acheteur","quality"] },
@@ -130,11 +129,9 @@ const NAV_GROUPS = [
     { id:"stock", label:"Stock PF", icon:"📦", roles:[] },
   ]},
   { group:"Finance", icon:"💰", items:[
-    //{ id:"facturation",  label:"Facturation",       icon:"📄", roles:[] },
     { id:"finance_dash", label:"Dashboard Finance", icon:"💹", roles:["dg","finance"] },
     { id:"encaissement", label:"Encaissements",     icon:"💵", roles:[] },
-    { id:"traites",      label:"Traites & Échéances", icon:"🗒", roles:["dg","finance"] },
-    { id:"traite",      label:"Traites", icon:"🗒", roles:["dg","finance"] },
+    { id:"traite",      label:"Traites & Échéances", icon:"🗒", roles:["dg","finance"] },
     { id:"prix",         label:"Tarifs & Prix",     icon:"🏷",  roles:[] },
     { id:"catalog", label:"Catalog",       icon:"📊", roles:[] },
     { id:"cloture_tournee", label:"Clôture Tournée", icon:"✅", roles:["dg","finance","dir_commercial"] },
@@ -150,7 +147,6 @@ const NAV_GROUPS = [
   { group:"Outils", icon:"🛠", items:[
     { id:"ai",       label:"Assistant IA", icon:"🤖", roles:[] },
     { id:"settings", label:"Paramètres",   icon:"⚙",  roles:[] },
-    { id:"new_client", label:"Nouveau Client", icon:"🆕", roles:[] },
   ]},
 ];
 
@@ -184,6 +180,7 @@ export default function App() {
     stockCamion, setStockCamion, alerts, setAlerts,
     fournisseurs, setFournisseurs,
     traites, setTraites,
+    brands,
     reload: reloadSupa,
   } = sbData;
 
@@ -279,12 +276,10 @@ export default function App() {
     switch (page) {
       case "home":              return <HomeView {...p} data={{ lots, bls, brs, cpf, cmp, clients, qcControls: QC_INIT, inventory: INVENTORY_INIT }} alerts={alerts} onNavigate={navigate} factures={factures} arts={arts}/>;
       case "cpf":               return <CommandesPFView {...p} cpf={cpf} setCpf={setCpf} lots={lots} arts={arts} clients={clients}/>;
-      //case "bl":                return <BLView {...p} bls={bls} setBls={setBls} lots={lots} setLots={setLots} arts={arts} clients={clients} onSaved={() => reloadSupa(["delivery_orders","production_lots"])}/>;
-      //case "br":                return <BRView {...p} brs={brs} setBrs={setBrs} lots={lots} setLots={setLots} arts={arts} clients={clients} onSaved={() => reloadSupa(["return_orders","production_lots"])}/>;
       case "clients":           return <ClientsView {...p} clients={clients} setClients={setClients}/>;
       case "performance":       return <PerformanceView {...p}/>;
       case "production":        return <ProductionView {...p} lots={lots} setLots={setLots} arts={arts} onSaved={() => reloadSupa(["production_lots"])}/>;
-      case "planning":          return <PlanningView {...p}/>;
+      case "planning":          return <PlanningView {...p} cpf={cpf} lots={lots} arts={arts}/>;
       case "demande_chargement":return <DemandeChargView {...p} cpf={cpf} lots={lots} arts={arts} onSaved={() => reloadSupa(["stock_camion"])}/>;
       case "achats":            return <AchatsView {...p} cmp={cmp} setCmp={setCmp} fournisseurs={fournisseurs} onSaved={() => reloadSupa(["commandes_mp"])}/>;
       case "fournisseurs":      return <FournisseursView {...p} fournisseurs={fournisseurs} setFournisseurs={setFournisseurs} onSaved={() => reloadSupa(["fournisseurs"])}/>;
@@ -334,6 +329,7 @@ export default function App() {
       setBrs={setBrs}          
       factures={factures}       
       setFactures={setFactures} 
+      brands={brands}
       onSaved={() => reloadSupa(["delivery_orders", "return_orders", "factures", "production_lots"])} 
     />
   );

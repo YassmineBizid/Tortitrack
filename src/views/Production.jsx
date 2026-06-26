@@ -20,6 +20,22 @@ export function ProductionPage({ lots, setLots, bls, articles }) {
   const [localToast, setLocalToast] = useState("");
   const [saving, setSaving] = useState(false);
   const [validated, setValidated] = useState(false);
+  const [selectedBrandId, setSelectedBrandId] = useState("");
+
+  // Extract unique brands from articles
+  const uniqueBrands = articles.length > 0 
+    ? Array.from(new Map(
+        articles
+          .filter(a => a.brand_id || a.marque_id)
+          .map(a => [a.brand_id || a.marque_id, { id: a.brand_id || a.marque_id, name: a.brand_name || a.marque || "Sans marque" }])
+      ).values())
+      .sort((a, b) => a.name.localeCompare(b.name))
+    : [];
+
+  // Filter articles by selected brand
+  const filteredArticles = selectedBrandId
+    ? articles.filter(a => (a.brand_id || a.marque_id) === selectedBrandId)
+    : articles;
 
   const dur = parseDur(form.heureDebut, form.heureFin);
   const tp  = form.lines.reduce((s,l) => s + (parseInt(l.produit)||0), 0);
@@ -82,7 +98,7 @@ export function ProductionPage({ lots, setLots, bls, articles }) {
   const tec  = tc>0&&tp>0 ? tp-tc : null;
   const tpct = tc>0&&tp>0 ? +(tp/tc*100).toFixed(1) : null;
 
-  const stockLive = articles.map(art => {
+  const stockLive = filteredArticles.map(art => {
     const av  = lots.filter(l => l.artId===art.id && l.status==="available").reduce((s,l) => s+l.availQty, 0);
     const pJ1 = lots.filter(l => l.artId===art.id && l.prodDate===YESTERDAY).reduce((s,l) => s+l.initQty, 0);
     const blJ = (bls||[]).filter(b => b.date===TODAY && b.status==="validated").flatMap(b => b.items||[]).filter(i => i.artId===art.id).reduce((s,i) => s+i.qty, 0);
@@ -118,6 +134,20 @@ export function ProductionPage({ lots, setLots, bls, articles }) {
           <div className="card-body">
             <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:12 }}>
               <div className="field">
+                <div className="lbl">📊 Filtrer par marque</div>
+                <select 
+                  className="inp" 
+                  value={selectedBrandId} 
+                  onChange={e => setSelectedBrandId(e.target.value)}
+                  style={{ cursor:"pointer" }}
+                >
+                  <option value="">-- Toutes les marques --</option>
+                  {uniqueBrands.map(b => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="field">
                 <div className="lbl">Date</div>
                 <input className="inp" type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date:e.target.value }))}/>
               </div>
@@ -129,7 +159,7 @@ export function ProductionPage({ lots, setLots, bls, articles }) {
                 <div className="lbl">⏱ Heure fin</div>
                 <input className="inp" type="time" value={form.heureFin} onChange={e => setForm(f => ({ ...f, heureFin:e.target.value }))}/>
               </div>
-              <div className="field">
+              <div className="field" style={{ gridColumn:"1/-1", marginTop:"-8px" }}>
                 <div className="lbl">Durée calculée</div>
                 <div className="inp" style={{ background:"var(--acc-l)", color:"var(--acc)", fontWeight:700, fontFamily:"var(--mono)", textAlign:"center", display:"flex", alignItems:"center", justifyContent:"center" }}>
                   {fmtDur(dur)}
@@ -165,12 +195,12 @@ export function ProductionPage({ lots, setLots, bls, articles }) {
               </thead>
               <tbody>
                 {form.lines.map((line, idx) => {
-                  const a   = articles.find(x => x.id===line.artId);
+                  const a   = filteredArticles.find(x => x.id===line.artId);
                   const c   = parseInt(line.commande)||0;
                   const p   = parseInt(line.produit)||0;
                   const ec  = c>0&&p>0 ? p-c : null;
                   const pct = c>0&&p>0 ? +(p/c*100).toFixed(1) : null;
-                  return (
+                  return !a ? null : (
                     <tr key={line.artId}>
                       <td>
                         <div style={{ fontWeight:700, color:"var(--acc)", fontSize:13 }}>{a?.code||a?.ref}</div>

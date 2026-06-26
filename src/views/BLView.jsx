@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState , useEffect, useMemo} from "react";
 import { Card, Btn, Modal, Input, Select, Textarea, Toast, StatusBadge, ExportFullMenu } from "../components/ui.jsx";
 import { STATUTS, fmt, TODAY, allocateFEFO, daysUntil } from "../data/demoData.js";
 import { sb } from "../supabaseClient.js";
@@ -10,33 +10,50 @@ export default function BLView({ user, bls, setBls, lots, setLots, addAudit, art
   const [filterC,    setFilterC]    = useState("");
   const [toast,      setToast]      = useState(null);
   const [blockInfo,  setBlockInfo]  = useState(null);
+  const [brands, setBrands] = useState([]);
 
   const roles = user?.roles || [];
 
-const filtered = (bls || []).filter(b => {
-  const matchS = filterS === "all" || b.status === filterS;
-  
-  // Sécurité additionnelle : b.client et b.number peuvent aussi être undefined
-  const clientName = b.client || b.client_name || ""; 
-  const blNumber = b.number || b.num || "";
+  useEffect(() => {
+    async function fetchBrands() {
+      try {
+        const { data, error } = await sb.from("brands").select("id, name").order("name");
+        if (error) throw error;
+        if (data) setBrands(data);
+      } catch (err) {
+        console.error("Erreur lors de la récupération des marques:", err);
+      }
+    }
 
-  const matchC = !filterC || 
-    clientName.toLowerCase().includes(filterC.toLowerCase()) || 
-    blNumber.toLowerCase().includes(filterC.toLowerCase());
+    fetchBrands();
+  }, []);
 
-  return matchS && matchC;
-});
+  const filtered = useMemo(() => {
+    return (bls || []).filter(b => {
+      const matchS = filterS === "all" || b.status === filterS;
+
+      // Sécurité additionnelle : b.client et b.number peuvent aussi être undefined
+      const clientName = b.client || b.client_name || "";
+      const blNumber = b.number || b.num || "";
+
+      const matchC = !filterC ||
+        clientName.toLowerCase().includes(filterC.toLowerCase()) ||
+        blNumber.toLowerCase().includes(filterC.toLowerCase());
+
+      return matchS && matchC;
+    });
+  }, [bls, filterS, filterC]);
 
   const validate = (bl) => {
     // Check all lots
     const issues = [];
     for (const item of (bl.items || [])) {
-      const lot = lots.find(l => l.id === item.lotId);
-      if (!lot) { issues.push(`Lot ${item.lotId} introuvable`); continue; }
-      if (lot.status === "blocked")    issues.push(`Lot ${lot.code} BLOQUÉ: ${lot.blockedReason}`);
-      if (lot.qcStatus === "bloque")   issues.push(`Lot ${lot.code} bloqué par QC`);
-      if (daysUntil(lot.dlc) < 0)     issues.push(`Lot ${lot.code} expiré`);
-      if (lot.availQty < item.qty)     issues.push(`Stock insuffisant pour ${lot.code}: ${lot.availQty} / ${item.qty}`);
+      const lot = findLot(item.lotId);
+      if (!lot) { issues.push(`Lot "${item.lotId}" introuvable en stock`); continue; }
+      if (lot.status === "blocked")    issues.push(`Lot ${lot.lotNum || lot.code} BLOQUÉ: ${lot.blockedReason}`);
+      if (lot.qcStatus === "bloque")   issues.push(`Lot ${lot.lotNum || lot.code} bloqué par QC`);
+      if (daysUntil(lot.dlc) < 0)     issues.push(`Lot ${lot.lotNum || lot.code} expiré`);
+      if (lot.availQty < item.qty)     issues.push(`Stock insuffisant pour ${lot.lotNum || lot.code}: ${lot.availQty} / ${item.qty}`);
     }
     if (issues.length) { setBlockInfo({ bl, issues }); return; }
     performValidate(bl);
@@ -44,12 +61,15 @@ const filtered = (bls || []).filter(b => {
 
   const isUUID = s => s && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
 
+  // Cherche un lot par UUID, numéro de lot ou code interne
+  const findLot = (lotId) => lots.find(l => l.id === lotId || l.lotNum === lotId || l.code === lotId);
+
   const performValidate = async (bl) => {
     setBls(bs => bs.map(b => b.id === bl.id ? { ...b, status:"validated" } : b));
     // Deduct stock FEFO
     const updatedLots = [...lots];
     for (const item of (bl.items || [])) {
-      const idx = updatedLots.findIndex(l => l.id === item.lotId);
+      const idx = updatedLots.findIndex(l => l.id === item.lotId || l.lotNum === item.lotId || l.code === item.lotId);
       if (idx >= 0) {
         updatedLots[idx] = { ...updatedLots[idx], availQty: Math.max(0, updatedLots[idx].availQty - item.qty) };
         if (updatedLots[idx].availQty === 0) updatedLots[idx] = { ...updatedLots[idx], status:"exhausted" };
@@ -146,16 +166,18 @@ const filtered = (bls || []).filter(b => {
 
     const itemRows = (bl.items||[]).map((item, idx) => {
       const a   = arts.find(x => x.id === item.artId);
-      const lot = lots.find(l => l.id === item.lotId);
+      const lot = findLot(item.lotId);
       const pu  = item.px || a?.price || 0;
       const tot = pu * (item.qty || 0);
-      const dlcStr = lot?.dlc || "—";
-      const dlcDate = lot?.dlc ? new Date(lot.dlc) : null;
+      const dlcRaw = lot?.dlc || item.dlc || null;
+      const dlcStr = dlcRaw ? new Date(dlcRaw).toLocaleDateString('fr-FR') : "—";
+      const dlcDate = dlcRaw ? new Date(dlcRaw) : null;
       const dlcStyle = dlcDate && (dlcDate - new Date()) / 86400000 <= 3 ? "color:#dc2626;font-weight:bold" : "";
+      const lotLabel = lot?.lotNum || lot?.code || item.lotId || "—";
       return `<tr>
         <td style="font-family:monospace;font-size:10px">${a?.code||"—"}</td>
         <td>${a?.name||("Article "+(idx+1))}</td>
-        <td style="font-family:monospace;font-size:9px;color:#475569">${lot?.code||item.lotId||"—"}</td>
+        <td style="font-family:monospace;font-size:9px;color:#475569">${lotLabel}</td>
         <td style="${dlcStyle}">${dlcStr}</td>
         <td style="text-align:center;font-weight:900;font-size:12px">${(item.qty||0).toLocaleString("fr-FR")}</td>
         <td style="text-align:center;color:#64748b">Colis</td>
@@ -379,14 +401,17 @@ tbody td{padding:8px 7px;border-bottom:1px solid #e8edf2;vertical-align:middle}
               <div className="text-xs font-bold text-gray-400 uppercase mb-2">Lignes de livraison</div>
               {(showDetail.items||[]).map((item,i)=>{
                 const a = arts.find(x=>x.id===item.artId);
-                const lot = lots.find(l=>l.id===item.lotId);
-                const dl = lot ? daysUntil(lot.dlc) : null;
+                const lot = findLot(item.lotId);
+                const dlcRaw = lot?.dlc || item.dlc || null;
+                const dl = dlcRaw ? daysUntil(dlcRaw) : null;
+                const lotLabel = lot?.lotNum || lot?.code || item.lotId || "—";
+                const dlcLabel = dlcRaw ? new Date(dlcRaw).toLocaleDateString('fr-FR') : "—";
                 return (
                   <div key={i} className={`p-3 rounded-xl mb-2 border ${lot?.qcStatus==="bloque"?"bg-red-50 border-red-200":dl!==null&&dl<=3?"bg-amber-50 border-amber-200":"bg-gray-50 border-gray-100"}`}>
                     <div className="flex justify-between items-center">
                       <div>
-                        <div className="font-bold">{a?.code} — {a?.name}</div>
-                        <div className="text-xs text-gray-500">Lot: {lot?.code||item.lotId} · DLC: {lot?.dlc||"—"}</div>
+                        <div className="font-bold">{a?.code||item.ref} — {a?.name||item.name}</div>
+                        <div className="text-xs text-gray-500">Lot: {lotLabel} · DLC: {dlcLabel}</div>
                       </div>
                       <div className="text-right">
                         <div className="font-bold">{fmt(item.qty)} pcs</div>
@@ -427,16 +452,49 @@ tbody td{padding:8px 7px;border-bottom:1px solid #e8edf2;vertical-align:middle}
 
       {/* Modal création */}
       <Modal open={showCreate} onClose={()=>setShowCreate(false)} title="Nouveau BL" maxWidth="max-w-xl">
-        <CreateBLForm clients={clients} arts={arts} lots={lots} onSave={createBL} onClose={()=>setShowCreate(false)}/>
+        <CreateBLForm clients={clients} arts={arts} lots={lots} brands={brands} onSave={createBL} onClose={()=>setShowCreate(false)}/>
       </Modal>
     </div>
   );
 }
 
-function CreateBLForm({ clients, arts, lots, onSave, onClose }) {
-  const [f, setF] = useState({ clientId:"", items:[{artId:"",qty:""}] });
+function CreateBLForm({ clients = [], arts = [], lots = [], brands = [], onSave, onClose }) {
+  const [f, setF] = useState({ clientId: "", items: [{ brandId: "", artId: "", qty: "" }] });
+  const [selectedBrandId, setSelectedBrandId] = useState("");
+
+  const filteredArts = useMemo(() => {
+    if (!selectedBrandId) return arts;
+    return arts.filter(a => {
+      const artBrandId = a.brand_id || a.marque_id;
+      return artBrandId && String(artBrandId) === String(selectedBrandId);
+    });
+  }, [selectedBrandId, arts]);
+
+  const handleBrandChange = (brandId) => {
+    setSelectedBrandId(brandId);
+    setF(x => ({
+      ...x,
+      items: x.items.map(item => {
+        if (!item.artId) return item;
+        const article = arts.find(a => a.id === item.artId);
+        const artBrandId = article?.brand_id || article?.marque_id;
+        return brandId && artBrandId && String(artBrandId) !== String(brandId)
+          ? { ...item, artId: "" }
+          : item;
+      })
+    }));
+  };
   const up = (k,v) => setF(x=>({...x,[k]:v}));
-  const upItem = (i,k,v) => { const it=[...f.items]; it[i]={...it[i],[k]:v}; setF(x=>({...x,items:it})); };
+  const upItem = (i, k, v) => {
+    const items = [...f.items];
+    items[i] = { ...items[i], [k]: v };
+    if (k === "brandId") items[i].artId = "";
+    setF(x => ({ ...x, items }));
+  };
+
+  const currentBrandName = selectedBrandId
+    ? (brands.find(b => String(b.id) === String(selectedBrandId))?.name || brands.find(b => String(b.id) === String(selectedBrandId))?.nom || "")
+    : "";
 
   return (
     <div className="space-y-4">
@@ -444,28 +502,86 @@ function CreateBLForm({ clients, arts, lots, onSave, onClose }) {
         <option value="">Sélectionner...</option>
         {clients.filter(c=>c.status==="validated").map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
       </Select>
-      <div>
-        <div className="text-xs font-bold text-gray-400 uppercase mb-2">Articles (allocation FEFO automatique)</div>
-        {f.items.map((item,i)=>{
-          const { totalAvail } = item.artId ? allocateFEFO(lots,item.artId,parseInt(item.qty)||0) : {totalAvail:0};
-          return (
-            <div key={i} className="flex gap-2 items-end mb-2">
-              <Select className="flex-1" value={item.artId} onChange={e=>upItem(i,"artId",e.target.value)}>
-                <option value="">Article...</option>
-                {arts.map(a=><option key={a.id} value={a.id}>{a.code} — stock: {lots.filter(l=>l.artId===a.id&&l.status==="available").reduce((s,l)=>s+l.availQty,0).toLocaleString()}</option>)}
-              </Select>
-              <div className="flex flex-col gap-1">
-                <input type="number" min="1" placeholder="Qté" value={item.qty} onChange={e=>upItem(i,"qty",e.target.value)} className="w-24 border border-gray-200 rounded-xl px-3 py-2 text-sm text-center focus:outline-none min-h-[44px]"/>
-                {item.artId&&<div className="text-xs text-gray-400 text-center">Dispo: {totalAvail.toLocaleString()}</div>}
+    
+      <Select
+        label="Filtrer par Marque"
+        value={selectedBrandId}
+        onChange={e => handleBrandChange(e.target.value)}
+        className="border-blue-300 bg-blue-50/30"
+      >
+        <option value="">Toutes les marques</option>
+        {brands.map(b => (
+          <option key={b.id} value={b.id}>{b.name || b.nom}</option>
+        ))}
+      </Select>
+
+      <div className="bg-gray-50/50 p-3 rounded-2xl border border-gray-100">
+        <div className="flex justify-between items-center mb-2">
+          <div className="text-xs font-bold text-gray-400 uppercase">
+            Articles {currentBrandName ? `(${currentBrandName})` : ""} *
+          </div>
+          {selectedBrandId && (
+            <span className="text-[10px] bg-blue-100 text-blue-700 font-bold px-2 py-0.5 rounded-full">
+              Filtre actif: {filteredArts.length} article{filteredArts.length > 1 ? "s" : ""}
+            </span>
+          )}
+        </div>
+
+        <div className="space-y-2">
+          {f.items.map((item, i) => {
+            const totalAvail = item.artId
+              ? lots.reduce((sum, lot) => {
+                  const lotArtId = lot.artId || lot.product_id || lot.articleId;
+                  const lotQty = Number(lot.availQty ?? lot.qty ?? 0) || 0;
+                  return lotArtId && String(lotArtId) === String(item.artId) ? sum + lotQty : sum;
+                }, 0)
+              : 0;
+
+            return (
+              <div key={`item-${i}-${selectedBrandId}`} className="flex gap-2 items-end">
+                <Select
+                  key={`select-${i}-${selectedBrandId}`}
+                  className="flex-1"
+                  value={item.artId}
+                  onChange={e => upItem(i, "artId", e.target.value)}
+                >
+                  <option value="">Sélectionner un article...</option>
+                  {filteredArts.length > 0 ? (
+                    filteredArts.map(a => (
+                      <option key={a.id} value={a.id}>{a.code || a.ref} — {a.name}</option>
+                    ))
+                  ) : (
+                    <option disabled>Aucun article disponible pour cette marque</option>
+                  )}
+                </Select>
+
+                <div className="flex flex-col gap-1">
+                  <input
+                    type="number"
+                    min="1"
+                    placeholder="Qté"
+                    value={item.qty}
+                    onChange={e => upItem(i, "qty", e.target.value)}
+                    className="w-20 border border-gray-200 rounded-xl px-2 py-2 text-sm text-center focus:outline-none min-h-[44px]"
+                  />
+                  {item.artId && <div className="text-[10px] text-gray-400 text-center">Dispo: {totalAvail.toLocaleString()}</div>}
+                </div>
+
+                {f.items.length > 1 && (
+                  <Btn variant="ghost" size="sm" className="mb-1" onClick={() => setF(x => ({ ...x, items: x.items.filter((_, idx) => idx !== i) }))}>✕</Btn>
+                )}
               </div>
-              {f.items.length > 1 && <Btn variant="ghost" size="sm" onClick={()=>setF(x=>({...x,items:x.items.filter((_,idx)=>idx!==i)}))}>✕</Btn>}
-            </div>
-          );
-        })}
-        <Btn variant="secondary" size="sm" onClick={()=>setF(x=>({...x,items:[...x.items,{artId:"",qty:""}]}))}>+ Article</Btn>
+            );
+          })}
+
+          <Btn variant="secondary" size="sm" onClick={() => setF(x => ({ ...x, items: [...x.items, { brandId: "", artId: "", qty: "" }] }))}>
+            + Article
+          </Btn>
+        </div>
       </div>
+
       <div className="flex gap-2">
-        <Btn variant="success" className="flex-1" disabled={!f.clientId||!f.items.some(i=>i.artId&&i.qty)} onClick={()=>onSave(f)}>✓ Créer BL</Btn>
+        <Btn variant="success" className="flex-1" disabled={!f.clientId || !f.items.some(i => i.artId && i.qty)} onClick={() => onSave(f)}>✓ Créer BL</Btn>
         <Btn variant="secondary" onClick={onClose}>Annuler</Btn>
       </div>
     </div>

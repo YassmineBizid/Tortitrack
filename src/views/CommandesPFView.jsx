@@ -20,8 +20,8 @@ const STATUS_NEXT = {
   validated:                 { roles:["chef_usine"],        nextStatus:"planned",                 label:"Planifier" },
   planned:                   { roles:["chef_usine"],        nextStatus:"in_production",           label:"En production" },
   in_production:             { roles:["chef_usine"],        nextStatus:"available",                label:"Disponible" },
-  available:                 { roles:["chef_usine"],        nextStatus:"charged",                label:"Chargé" },
-  charged:                   { roles:["chef_usine"],        nextStatus:"delivered",                label:"Livré" },
+  available:                 { roles:["chef_usine"],        nextStatus:"charged",                label:"Chargée" },
+  charged:                   { roles:["chef_usine"],        nextStatus:"delivered",                label:"Livrée" },
 };
 
 export default function CommandesPFView({ user, cpf, setCpf, addAudit, lots, arts = [], clients = [] }) {
@@ -184,7 +184,7 @@ export default function CommandesPFView({ user, cpf, setCpf, addAudit, lots, art
       {toast && <Toast message={toast.msg} color={toast.color} onDone={() => setToast(null)}/>}
 
       <div className="flex items-center justify-between">
-        <div><h1 className="text-xl font-bold text-gray-900">Commandes Produits Finis</h1><p className="text-xs text-gray-400 mt-0.5">Workflow: Brouillon → CC → Chef Usine → Planifié → Production → Disponible</p></div>
+        <div><h1 className="text-xl font-bold text-gray-900">Commandes Produits Finis</h1><p className="text-xs text-gray-400 mt-0.5">Workflow: Brouillon → CC → Chef Usine → Planifiée → Production → Disponible → Chargée → Livrée </p></div>
         <div className="flex gap-2"><ExportFullMenu type="cpf" data={cpf}/>{isCom&&<Btn variant="primary" onClick={() => setShowCreate(true)}>+ Nouvelle commande</Btn>}</div>
       </div>
 

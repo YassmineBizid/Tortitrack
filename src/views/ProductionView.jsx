@@ -32,6 +32,40 @@ export default function ProductionView({ user, lots, setLots, addAudit, arts: ar
   const [kpisVisible, setKpisVisible] = useState(false);
   const [toast, setToast]   = useState(null);
   const [submitted, setSubmitted] = useState(false);
+  const [selectedBrandId, setSelectedBrandId] = useState("");
+  const [brands, setBrands] = useState([]);
+
+  // Load brands from Supabase
+  useEffect(() => {
+    const loadBrands = async () => {
+      try {
+        const { data } = await sb.from("brands").select("id, name");
+        if (data) setBrands(data);
+      } catch (e) {
+        console.error("Error loading brands:", e);
+      }
+    };
+    loadBrands();
+  }, []);
+
+  // Extract unique brands from articles and match with brand names
+  const uniqueBrands = arts.length > 0 
+    ? Array.from(new Map(
+        arts
+          .filter(a => a.brand_id || a.marque_id)
+          .map(a => {
+            const brandId = a.brand_id || a.marque_id;
+            const brandObj = brands.find(b => b.id === brandId);
+            return [brandId, { id: brandId, name: brandObj?.name || a.brand_name || a.marque || "Sans marque" }];
+          })
+      ).values())
+      .sort((a, b) => a.name.localeCompare(b.name))
+    : [];
+
+  // Filter articles by selected brand
+  const filteredArticles = selectedBrandId
+    ? arts.filter(a => (a.brand_id || a.marque_id) === selectedBrandId)
+    : arts;
 
   const dur = parseDur(form.hDebut, form.hFin);
   const tp  = form.lines.reduce((s, l) => s + (parseInt(l.produit) || 0), 0);
@@ -126,7 +160,20 @@ export default function ProductionView({ user, lots, setLots, addAudit, arts: ar
       {/* Section A — Temps */}
       <Card className="p-5">
         <div className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">A — Identification &amp; Durée de production</div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <Field label="📊 Filtrer par marque">
+            <select 
+              value={selectedBrandId} 
+              onChange={e => setSelectedBrandId(e.target.value)}
+              disabled={submitted}
+              className="border border-gray-200 rounded-xl px-3 py-2 text-sm font-semibold text-gray-700 focus:outline-none min-h-[44px] cursor-pointer"
+            >
+              <option value="">-- Toutes les marques --</option>
+              {uniqueBrands.map(b => (
+                <option key={b.id} value={b.id}>{b.name}</option>
+              ))}
+            </select>
+          </Field>
           <Input label="Date" type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} disabled={submitted}/>
           <Field label="⏱ Heure début">
             <input type="time" value={form.hDebut} onChange={e => setForm(f => ({ ...f, hDebut: e.target.value }))} disabled={submitted} className="border border-gray-200 rounded-xl px-3 py-2 text-sm font-mono font-bold text-blue-700 focus:outline-none min-h-[44px]"/>
@@ -159,7 +206,8 @@ export default function ProductionView({ user, lots, setLots, addAudit, arts: ar
             </thead>
             <tbody className="divide-y divide-gray-50">
               {form.lines.map((line, idx) => {
-                const a  = arts.find(x => x.id === line.artId);
+                const a  = filteredArticles.find(x => x.id === line.artId);
+                if (!a) return null;
                 const c  = parseInt(line.commande) || 0;
                 const p  = parseInt(line.produit)  || 0;
                 const ec = c > 0 && p > 0 ? p - c : null;

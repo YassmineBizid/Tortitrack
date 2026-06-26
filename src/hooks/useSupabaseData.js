@@ -54,6 +54,7 @@ const mapBL = (r) => ({
   vendor:   r.vendor_snapshot?.name || "",
   status:   r.status,
   notes:    r.notes || "",
+  marque:    r.marque || "",
   total:    (r.delivery_lines || []).reduce((s, l) => s + (l.quantity * (l.unit_price || 0)), 0),
   items:    (r.delivery_lines || []).map((l) => ({
     artId: l.product_id,
@@ -214,9 +215,9 @@ const mapStockCamion = (r) => {
     vendeur:         r.vendeur || "",
     vehicule:        r.vehicule || "",
     artId:           r.art_id || "",
-    artCode:         r.art_code || "",
-    lot:             r.lot || "",
-    lotCode:         r.lot || "",
+    artCode:         r.products?.name || r.art_code || "",
+    lot:             r.production_lots?.lot_number || r.lot || "",
+    lotCode:         r.production_lots?.lot_number || r.lot || "",
     lotId:           r.lot_id || "",
     qteChargee,
     qteVendue,
@@ -228,7 +229,7 @@ const mapStockCamion = (r) => {
     nbJoursCamion,
     statusQC:        r.status_qc || "ok",
     dormant:         nbJoursCamion >= 2,
-    dlc:             r.dlc || null,
+    dlc:             r.production_lots?.expiry_date || r.dlc || null,
     date:            r.date,
     notes:           r.notes || "",
     createdAt:       r.created_at,
@@ -304,6 +305,7 @@ export function useSupabaseData(fallback) {
   const [alerts,        setAlerts]        = useState(fallback.alerts        || []);
   const [fournisseurs,  setFournisseurs]  = useState(fallback.fournisseurs  || []);
   const [traites,       setTraites]       = useState(fallback.traites       || []);
+  const [brands,        setBrands]        = useState(fallback.brands        || []);
   const [loading,       setLoading]       = useState(true);
 
   const loadAll = useCallback(async () => {
@@ -312,7 +314,7 @@ export function useSupabaseData(fallback) {
       const [
         prodRes, lotsRes, blsRes, brsRes,
         clientsRes, cpfRes, cmpRes,
-        facturesRes, encRes, scRes, alertsRes, foursRes, traitesRes,
+        facturesRes, encRes, scRes, alertsRes, foursRes, traitesRes, brandsRes,
       ] = await Promise.allSettled([
         sb.from("products").select("*").eq("is_active", true).order("ref"),
         sb.from("production_lots").select("*, products(id, ref, name)").order("created_at", { ascending: false }),
@@ -323,10 +325,11 @@ export function useSupabaseData(fallback) {
         sb.from("commandes_mp").select("*").order("created_at", { ascending: false }),
         sb.from("factures").select("*, facture_lignes(*)").order("date", { ascending: false }),
         sb.from("encaissements").select("*").order("date", { ascending: false }),
-        sb.from("stock_camion").select("*").order("date", { ascending: false }),
+        sb.from("stock_camion").select("*, products(name), production_lots(lot_number, expiry_date)").order("date", { ascending: false }),
         sb.from("alerts").select("*").eq("status", "open").order("created_at", { ascending: false }),
         sb.from("fournisseurs").select("*").order("name"),
         sb.from("traites").select("*").order("dateEcheance", { ascending: true }),
+        sb.from("brands").select("*").order("name"),
       ]);
 
       const pick = (res, mapper) => {
@@ -375,6 +378,9 @@ export function useSupabaseData(fallback) {
       const newTraites = pick(traitesRes, mapTraite);
       if (newTraites !== null) setTraites(newTraites);
 
+      const newBrands = pick(brandsRes, (r) => ({ id: r.id, name: r.name }));
+      if (newBrands !== null) setBrands(newBrands);
+
     } finally {
       setLoading(false);
     }
@@ -412,7 +418,7 @@ export function useSupabaseData(fallback) {
           const { data, error } = await sb.from("encaissements").select("*").order("date", { ascending: false });
           if (!error && data) setEncaissements(data.map(mapEncaissement));
         } else if (t === "stock_camion") {
-          const { data, error } = await sb.from("stock_camion").select("*").order("date", { ascending: false });
+          const { data, error } = await sb.from("stock_camion").select("*, products(name), production_lots(lot_number, expiry_date)").order("date", { ascending: false });
           if (!error && data) setStockCamion(data.map(mapStockCamion));
         } else if (t === "alerts") {
           const { data, error } = await sb.from("alerts").select("*").order("created_at", { ascending: false });
@@ -442,6 +448,7 @@ export function useSupabaseData(fallback) {
     alerts,        setAlerts,
     fournisseurs,  setFournisseurs,
     traites,       setTraites,
+    brands,        setBrands,
     loading,
     reload,
   };

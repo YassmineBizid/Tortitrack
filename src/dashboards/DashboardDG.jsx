@@ -40,6 +40,19 @@ const dateLabel = new Date().toLocaleDateString("fr-FR", {
 
   return (
     <div className="space-y-5">
+           {(()=>{
+        const daUrgentes2=(typeof da!=="undefined"?da:[]).filter(d=>d.urgence==="critique"&&!["cloturee","annulee"].includes(d.statut));
+        const artsCrit2=(typeof ARTICLES_ACHAT!=="undefined"?ARTICLES_ACHAT:[]).filter(a=>a.stockActuel/a.consoMoyJour<=7);
+        const recA2=(typeof receptions!=="undefined"?receptions:[]).filter(r=>r.statutQC==="en_attente").length;
+        const daAtt2=(typeof da!=="undefined"?da:[]).filter(d=>d.statut==="soumis").length;
+        return <div className="rounded-2xl p-4 border-2 border-emerald-200 bg-emerald-50/20">
+          <div className="text-xs font-bold text-emerald-700 uppercase mb-3">🛒 Achat & Approvisionnement</div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
+            {[[String(daAtt2),"DA en attente","#d97706"],[`${daUrgentes2.length} critique(s)`,"DA urgentes","#dc2626"],[`${artsCrit2.length} article(s)`,"MP critiques <7j","#dc2626"],[`${recA2} lot(s)`,"En attente QC","#0891b2"]].map(([v,l,c])=><div key={l} className="bg-white rounded-xl p-2.5 border border-emerald-100 text-center"><div className="font-black text-sm" style={{color:c}}>{v}</div><div className="text-gray-400 text-xs mt-0.5">{l}</div></div>)}
+          </div>
+          {artsCrit2.length>0&&<div className="text-xs text-red-700 font-semibold mt-2">🔴 {artsCrit2.map(a=>a.nom).join(", ")}</div>}
+        </div>;
+      })()}
       {/* Alerte critique */}
       {critAlerts.length > 0 && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-center gap-3">
