@@ -80,10 +80,6 @@ export default function HomePage({
           <h1 className="text-xl font-bold text-gray-900">Dashboard Direction Générale</h1>
           <p className="text-xs text-gray-400 mt-0.5">{dateLabel} · Données en temps réel</p>
         </div>
-        <div className="flex gap-2">
-          <Btn variant="secondary" size="sm" onClick={()=>printBL(showDetail,lots,ARTS)}>🖨 PDF BL</Btn>
-          <Btn variant="secondary" size="sm">📊 Excel</Btn>
-        </div>
       </div>
         <div className="flex gap-2 items-center flex-wrap">
           <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">Vue :</span>

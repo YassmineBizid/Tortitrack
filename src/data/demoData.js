@@ -5,10 +5,10 @@
 export const TODAY = new Date().toISOString().split("T")[0];
 
 export const ARTS = [
-  { id:"1", code:"TC2505", name:"Tortilla 25cm–5pcs",  price:2.850, minStock:200, maxStock:5000, capacityDay:2000, capacityHour:250 },
-  { id:"2", code:"TC2510", name:"Tortilla 25cm–10pcs", price:4.900, minStock:150, maxStock:4000, capacityDay:1500, capacityHour:187 },
-  { id:"3", code:"TC3005", name:"Tortilla 30cm–5pcs",  price:3.200, minStock:100, maxStock:3000, capacityDay:1200, capacityHour:150 },
-  { id:"4", code:"TC3010", name:"Tortilla 30cm–10pcs", price:5.500, minStock:80,  maxStock:2500, capacityDay:900,  capacityHour:112 },
+  { id:"1", code:"TC2505", name:"Tortilla 25cm–5pcs",  price:2.850, brand_id:"m1", minStock:200, maxStock:5000, capacityDay:2000, capacityHour:250 },
+  { id:"2", code:"TC2510", name:"Tortilla 25cm–10pcs", price:4.900, brand_id:"m1", minStock:150, maxStock:4000, capacityDay:1500, capacityHour:187 },
+  { id:"3", code:"TC3005", name:"Tortilla 30cm–5pcs",  price:3.200, brand_id:"m2", minStock:100, maxStock:3000, capacityDay:1200, capacityHour:150 },
+  { id:"4", code:"TC3010", name:"Tortilla 30cm–10pcs", price:5.500, brand_id:"m2", minStock:80,  maxStock:2500, capacityDay:900,  capacityHour:112 },
 ];
 
 export const CLIENTS_DATA = [

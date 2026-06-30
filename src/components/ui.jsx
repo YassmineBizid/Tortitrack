@@ -142,13 +142,14 @@ export function Toast({ message, onDone, duration = 3000, color }) {
 }
 
 /* ── Input (alias TextInput) ──────────────────────────────────────────── */
-export function Input({ label, type = "text", value, onChange, placeholder, className = "" }) {
+export function Input({ label, type = "text", value, onChange, onBlur, placeholder, className = "" }) {
   return (
     <Field label={label}>
       <input
         type={type}
         value={value}
         onChange={onChange}
+        onBlur={onBlur}
         placeholder={placeholder}
         className={`w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 min-h-[40px] ${className}`}
       />

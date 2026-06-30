@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { sb } from "../supabaseClient.js";
 import { Card, Btn, Modal, Input, Select, Textarea, Toast } from "../components/ui.jsx";
-import { ARTS, fmt, TODAY } from "../data/demoData.js";
+import { ARTS, MARQUES, fmt, TODAY } from "../data/demoData.js";
 
 const STATUTS_FACTURE = {
   brouillon:    { l:"✏ Brouillon",      c:"#94a3b8" },
@@ -37,13 +37,35 @@ function FacBadge({ status }) {
   return <span className="px-2 py-0.5 rounded-full text-xs font-bold border" style={{ color:cfg.c, background:cfg.c+"15", borderColor:cfg.c+"30" }}>{cfg.l}</span>;
 }
 
-function CreateFactureWizard({ onSave, onClose, user, clientsList = [] }) {
+function CreateFactureWizard({ onSave, onClose, user, clientsList = [], brands: brandsProp = [] }) {
   // Use real clients from Supabase if available, fallback to hardcoded list
   const displayClients = clientsList.length > 0
     ? clientsList.map(c => ({ id: c.id, nom: c.name, canal: c.type || "Client", credit: c.terms || 0 }))
     : CLIENTS_FACTURATION;
+  const displayBrands = brandsProp.length > 0 ? brandsProp : MARQUES;
   const [step, setStep] = useState(1);
   const [f, setF] = useState({ clientId:"", blRefs:[""], items:[], modePaiement:"especes", montantPaye:"", notes:"" });
+  const [selectedBrandId, setSelectedBrandId] = useState("");
+
+  const filteredArts = useMemo(() => {
+    if (!selectedBrandId) return ARTS;
+    return ARTS.filter(a => a.brand_id && String(a.brand_id) === String(selectedBrandId));
+  }, [selectedBrandId]);
+
+  const handleBrandChange = (brandId) => {
+    setSelectedBrandId(brandId);
+    // Reset artId on items whose article no longer belongs to the new brand
+    setF(x => ({
+      ...x,
+      items: x.items.map(item => {
+        if (!item.artId) return item;
+        const art = ARTS.find(a => a.id === item.artId);
+        return brandId && art?.brand_id && String(art.brand_id) !== String(brandId)
+          ? { ...item, artId: "", artCode: "", prixU: "" }
+          : item;
+      })
+    }));
+  };
 
   const client = displayClients.find(c => c.id === f.clientId);
   const totalHT  = f.items.reduce((s,i) => s + (parseFloat(i.prixU)||0) * (parseInt(i.qty)||0), 0);
@@ -181,6 +203,41 @@ return (
 )}
       {step === 2 && (
         <div className="space-y-3">
+          {/* Filtre par marque */}
+          <div>
+            <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Filtrer par marque</label>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => handleBrandChange("")}
+                className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition-all ${
+                  !selectedBrandId ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"
+                }`}
+              >
+                Toutes
+              </button>
+              {displayBrands.map(b => {
+                const col = b.couleur || "#3b82f6";
+                return (
+                  <button
+                    key={b.id}
+                    onClick={() => handleBrandChange(String(b.id))}
+                    className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition-all`}
+                    style={String(selectedBrandId) === String(b.id)
+                      ? { background: col, color: "#fff", borderColor: col }
+                      : { background: col+"15", color: col, borderColor: col+"40" }}
+                  >
+                    {b.name || b.nom}
+                  </button>
+                );
+              })}
+              {selectedBrandId && (
+                <span className="text-[10px] bg-blue-50 text-blue-700 font-bold px-2 py-1 rounded-full border border-blue-200 self-center">
+                  {filteredArts.length} article{filteredArts.length !== 1 ? "s" : ""}
+                </span>
+              )}
+            </div>
+          </div>
+
           <div className="flex items-center justify-between">
             <span className="text-sm font-bold text-gray-700">Articles</span>
             <Btn variant="secondary" size="sm" onClick={addItem}>+ Article</Btn>
@@ -188,9 +245,12 @@ return (
           {f.items.map(item => (
             <div key={item.id} className="flex gap-2 items-end bg-gray-50 p-3 rounded-xl">
               <div className="flex-1">
-                <select value={item.artId} onChange={e => upItem(item.id,"artId",e.target.value)} className="w-full border border-gray-200 rounded-xl px-3 py-2 text-xs focus:outline-none mb-1">
+                <select key={`sel-${item.id}-${selectedBrandId}`} value={item.artId} onChange={e => upItem(item.id,"artId",e.target.value)} className="w-full border border-gray-200 rounded-xl px-3 py-2 text-xs focus:outline-none mb-1">
                   <option value="">Choisir article...</option>
-                  {ARTS.map(a => <option key={a.id} value={a.id}>{a.code} — {a.price.toFixed(3)} DT</option>)}
+                  {filteredArts.length > 0
+                    ? filteredArts.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name} — {a.price.toFixed(3)} DT</option>)
+                    : <option disabled>Aucun article pour cette marque</option>
+                  }
                 </select>
                 <input type="number" min="0" step="0.001" value={item.prixU} onChange={e => upItem(item.id,"prixU",e.target.value)} className="w-full border border-gray-200 rounded-xl px-3 py-1.5 text-xs" placeholder="Prix HT"/>
               </div>
@@ -354,26 +414,195 @@ export default function FacturationView({ user, factures, setFactures, addAudit,
   };
 
   const printFacture = (fac) => {
-    const html=`<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>Facture ${fac.number||fac.num}</title>
-<style>body{font-family:Arial,sans-serif;font-size:11px;padding:25px;color:#1e293b;max-width:680px;margin:auto;}
-.header{display:flex;justify-content:space-between;border-bottom:3px solid #1e293b;padding-bottom:12px;margin-bottom:20px;}
-table{width:100%;border-collapse:collapse;font-size:11px;}th{background:#1e293b;color:#fff;padding:8px;text-align:left;}td{padding:6px 8px;border-bottom:1px solid #f1f5f9;}
-.total{background:#1e293b;color:#fff;font-weight:900;font-size:14px;padding:10px;text-align:center;border-radius:6px;margin-top:15px;}
-</style></head><body>
-<div class="header"><div><strong style="font-size:18px">🌯 TORTITRACK</strong><br><span style="color:#64748b">Facture</span></div>
-<div style="text-align:right"><strong>${fac.number||fac.num}</strong><br>Date: ${fac.date}<br>Vendeur: ${fac.vendeur}</div></div>
-<div style="margin-bottom:20px"><strong>Client:</strong> ${fac.client}<br><strong>Réf. BL:</strong> ${fac.blRef||"—"}</div>
-<table><tr><th>Article</th><th>Qté</th><th>P.U. HT</th><th>Total HT</th></tr>
-${(fac.items||[]).map(i=>`<tr><td>${i.artCode||i.artId}</td><td>${i.qty}</td><td>${parseFloat(i.prixU).toFixed(3)}</td><td>${(parseFloat(i.prixU)*parseInt(i.qty)).toFixed(3)}</td></tr>`).join("")}
-</table>
-<div style="text-align:right;margin-top:15px;font-size:12px">
-<p>Total HT: ${fac.totalHT.toFixed(3)} DT</p>
-<p>TVA 19%: ${fac.tva.toFixed(3)} DT</p>
+    const statutLabel = { brouillon:"Brouillon", emise:"Émise", payee:"Payée", partiellement:"Paiement partiel", credit:"Crédit", annulee:"Annulée" };
+    const statutColor = { brouillon:"#94a3b8", emise:"#3b82f6", payee:"#059669", partiellement:"#d97706", credit:"#dc2626", annulee:"#6b7280" };
+    const modeLabel   = { especes:"Espèces", cheque:"Chèque", virement:"Virement bancaire", traite:"Traite", mixte:"Mixte", credit:"Crédit" };
+    const numFac      = fac.number || fac.num || "—";
+    const color       = statutColor[fac.status] || "#3b82f6";
+    const itemsHtml   = (fac.items || []).length > 0
+      ? (fac.items || []).map((i, idx) => {
+          const pu    = parseFloat(i.prixU) || 0;
+          const qty   = parseInt(i.qty) || 0;
+          const total = (pu * qty).toFixed(3);
+          return `<tr style="background:${idx%2===0?"#fff":"#f8fafc"}">
+            <td style="padding:8px 10px;border-bottom:1px solid #e2e8f0">${idx+1}</td>
+            <td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;font-weight:600">${i.artCode||i.artId||"—"}</td>
+            <td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;text-align:center">${qty}</td>
+            <td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;text-align:right">${pu.toFixed(3)} DT</td>
+            <td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:700">${total} DT</td>
+          </tr>`;
+        }).join("")
+      : `<tr><td colspan="5" style="padding:20px;text-align:center;color:#94a3b8;font-style:italic">Aucun article</td></tr>`;
+
+    const html = `<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Facture ${numFac}</title>
+  <style>
+    @page { size: A4; margin: 15mm 15mm 20mm 15mm; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; color: #1e293b; background: #fff; }
+    .page { max-width: 780px; margin: auto; padding: 24px; }
+    /* ── Header ── */
+    .header { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 18px; border-bottom: 3px solid ${color}; margin-bottom: 22px; }
+    .brand-name { font-size: 24px; font-weight: 900; color: #1e293b; letter-spacing: -0.5px; }
+    .brand-sub  { font-size: 10px; color: #64748b; margin-top: 3px; }
+    .fac-badge  { background: ${color}15; border: 2px solid ${color}; color: ${color}; font-size: 10px; font-weight: 800; padding: 4px 10px; border-radius: 20px; display: inline-block; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 1px; }
+    .fac-num    { font-size: 20px; font-weight: 900; color: #1e293b; }
+    .fac-date   { font-size: 10px; color: #64748b; margin-top: 4px; }
+    /* ── Parties ── */
+    .parties { display: flex; gap: 20px; margin-bottom: 20px; }
+    .party-box { flex: 1; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px; }
+    .party-title { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.5px; color: #94a3b8; margin-bottom: 8px; }
+    .party-name { font-size: 14px; font-weight: 800; color: #1e293b; margin-bottom: 4px; }
+    .party-info { font-size: 10px; color: #64748b; line-height: 1.6; }
+    /* ── Refs ── */
+    .refs { display: flex; gap: 10px; margin-bottom: 20px; }
+    .ref-chip { background: #f1f5f9; border-radius: 8px; padding: 8px 14px; font-size: 10px; color: #475569; }
+    .ref-chip span { font-weight: 700; color: #1e293b; }
+    /* ── Table ── */
+    .items-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; border-radius: 10px; overflow: hidden; border: 1px solid #e2e8f0; }
+    .items-table thead tr { background: ${color}; color: #fff; }
+    .items-table thead th { padding: 10px 10px; text-align: left; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; }
+    .items-table thead th:nth-child(3),
+    .items-table thead th:nth-child(4),
+    .items-table thead th:nth-child(5) { text-align: right; }
+    /* ── Totals ── */
+    .totals-wrap { display: flex; justify-content: flex-end; margin-bottom: 20px; }
+    .totals-box { width: 280px; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; }
+    .totals-row { display: flex; justify-content: space-between; padding: 8px 14px; border-bottom: 1px solid #e2e8f0; font-size: 11px; }
+    .totals-row:last-child { border-bottom: none; }
+    .totals-row.ht   { background: #f8fafc; color: #475569; }
+    .totals-row.tva  { background: #f8fafc; color: #475569; }
+    .totals-row.ttc  { background: ${color}; color: #fff; font-size: 14px; font-weight: 900; }
+    /* ── Payment ── */
+    .payment-section { display: flex; gap: 16px; margin-bottom: 24px; }
+    .pay-box { flex: 1; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px; }
+    .pay-title { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.5px; color: #94a3b8; margin-bottom: 8px; }
+    .pay-val { font-size: 16px; font-weight: 900; }
+    .pay-mode { font-size: 10px; color: #64748b; margin-top: 3px; }
+    /* ── Signature ── */
+    .sig-section { display: flex; gap: 20px; margin-bottom: 24px; }
+    .sig-box { flex: 1; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px; min-height: 70px; }
+    .sig-title { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.5px; color: #94a3b8; margin-bottom: 6px; }
+    /* ── Footer ── */
+    .footer { border-top: 1px solid #e2e8f0; padding-top: 12px; display: flex; justify-content: space-between; align-items: center; }
+    .footer-brand { font-size: 10px; font-weight: 700; color: #475569; }
+    .footer-ts { font-size: 9px; color: #94a3b8; }
+    @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Header -->
+  <div class="header">
+    <div>
+      <div class="brand-name">🌯 TORTITRACK</div>
+      <div class="brand-sub">Gestion commerciale · Livraisons · Facturation</div>
+      <div class="brand-sub" style="margin-top:6px">Zone Industrielle, Tunis — contact@tortitrack.tn</div>
+    </div>
+    <div style="text-align:right">
+      <div class="fac-badge">${statutLabel[fac.status] || "Facture"}</div>
+      <div class="fac-num">${numFac}</div>
+      <div class="fac-date">Date d'émission : <strong>${fac.date || "—"}</strong></div>
+      ${fac.numLivraison ? `<div class="fac-date">Livraison : <strong>${fac.numLivraison}</strong></div>` : ""}
+    </div>
+  </div>
+
+  <!-- Parties -->
+  <div class="parties">
+    <div class="party-box">
+      <div class="party-title">Vendeur / Émetteur</div>
+      <div class="party-name">TORTITRACK</div>
+      <div class="party-info">
+        Vendeur : <strong>${fac.vendeur || "—"}</strong><br>
+        Véhicule : ${fac.vehicule || "—"}<br>
+        MF : 0000000/A/A/M/000
+      </div>
+    </div>
+    <div class="party-box">
+      <div class="party-title">Client</div>
+      <div class="party-name">${fac.client || "—"}</div>
+      <div class="party-info">
+        Code client : ${fac.clientId || "—"}<br>
+        ${fac.blRef ? `Réf. BL : <strong>${fac.blRef}</strong>` : ""}
+      </div>
+    </div>
+  </div>
+
+  <!-- Refs chips -->
+  <div class="refs">
+    ${fac.blRef        ? `<div class="ref-chip">Réf. BL : <span>${fac.blRef}</span></div>` : ""}
+    ${fac.numLivraison ? `<div class="ref-chip">N° Livraison : <span>${fac.numLivraison}</span></div>` : ""}
+    <div class="ref-chip">Mode règlement : <span>${modeLabel[fac.modePaiement] || fac.modePaiement || "—"}</span></div>
+    <div class="ref-chip">Date impression : <span>${new Date().toLocaleDateString("fr-FR")}</span></div>
+  </div>
+
+  <!-- Items table -->
+  <table class="items-table">
+    <thead>
+      <tr>
+        <th style="width:30px">#</th>
+        <th>Désignation article</th>
+        <th style="width:60px;text-align:right">Qté</th>
+        <th style="width:100px;text-align:right">P.U. HT</th>
+        <th style="width:110px;text-align:right">Total HT</th>
+      </tr>
+    </thead>
+    <tbody>${itemsHtml}</tbody>
+  </table>
+
+  <!-- Totals -->
+  <div class="totals-wrap">
+    <div class="totals-box">
+      <div class="totals-row ht"><span>Total HT</span><span>${fac.totalHT.toFixed(3)} DT</span></div>
+      <div class="totals-row tva"><span>TVA (19%)</span><span>${fac.tva.toFixed(3)} DT</span></div>
+      <div class="totals-row ttc"><span>TOTAL TTC</span><span>${fac.totalTTC.toFixed(3)} DT</span></div>
+    </div>
+  </div>
+
+  <!-- Payment summary -->
+  <div class="payment-section">
+    <div class="pay-box">
+      <div class="pay-title">Montant payé</div>
+      <div class="pay-val" style="color:#059669">${fac.montantPaye.toFixed(3)} DT</div>
+      <div class="pay-mode">${modeLabel[fac.modePaiement] || fac.modePaiement || "—"}</div>
+    </div>
+    <div class="pay-box">
+      <div class="pay-title">Montant restant</div>
+      <div class="pay-val" style="color:${fac.montantRestant > 0 ? "#dc2626" : "#059669"}">${fac.montantRestant.toFixed(3)} DT</div>
+      <div class="pay-mode">${fac.montantRestant > 0 ? "À régler" : "Soldé"}</div>
+    </div>
+    <div class="pay-box" style="flex:2">
+      <div class="pay-title">Statut de la facture</div>
+      <div style="margin-top:4px">
+        <span style="background:${color}15;border:1.5px solid ${color};color:${color};font-size:11px;font-weight:800;padding:5px 14px;border-radius:20px;text-transform:uppercase;letter-spacing:0.5px">${statutLabel[fac.status] || "—"}</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Signatures -->
+  <div class="sig-section">
+    <div class="sig-box">
+      <div class="sig-title">Signature vendeur</div>
+    </div>
+    <div class="sig-box">
+      <div class="sig-title">Cachet &amp; signature client</div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    <div class="footer-brand">🌯 TORTITRACK ERP · Gestion commerciale</div>
+    <div class="footer-ts">Imprimé le ${new Date().toLocaleString("fr-FR")} · ${numFac}</div>
+  </div>
+
 </div>
-<div class="total">TOTAL TTC: ${fac.totalTTC.toFixed(3)} DT</div>
-<p style="text-align:center;font-size:9px;color:#94a3b8;margin-top:20px">TORTITRACK ERP — ${new Date().toLocaleString("fr-FR")}</p>
 </body></html>`;
-    const w=window.open("","_blank");if(w){w.document.write(html);w.document.close();setTimeout(()=>w.print(),400);}
+    const w = window.open("", "_blank");
+    if (w) { w.document.write(html); w.document.close(); setTimeout(() => w.print(), 500); }
   };
 
   return (

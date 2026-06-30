@@ -48,13 +48,14 @@ import FournisseursPage from "./views/Fournisseurs_Module.jsx";
 import FicheClientV2 from "./views/ficheclient.jsx";
 import ClientPage from "./views/ClientPage.jsx"
 import TraitessPage from "./views/TraiteView.jsx";
+import AICopilotHub from "./views/AI_Copilot_UI.jsx";
 import {
   initLots, initBLs, initBRs, initCPF, initCMP, initAlerts,
   initFactures, initEncaissements, initStockCamion,
   CLIENTS_DATA, ARTS, AUDIT_INIT, QC_INIT, INVENTORY_INIT,
 } from "./data/demoData.js";
 import RapprochementAchatPage from "./views/BCBL.jsx";
-
+import ListePrixPage from "./views/prix_promo.jsx";
 
 // ── Role mapping: DB single-role → app roles array ────────────────
 const ROLE_MAP = {
@@ -135,6 +136,7 @@ const NAV_GROUPS = [
     { id:"prix",         label:"Tarifs & Prix",     icon:"🏷",  roles:[] },
     { id:"catalog", label:"Catalog",       icon:"📊", roles:[] },
     { id:"cloture_tournee", label:"Clôture Tournée", icon:"✅", roles:["dg","finance","dir_commercial"] },
+    { id :"liste_prix", label:"Liste Prix & Promotions", icon:"🏷", roles:["dg","finance","dir_commercial"]},
   ]},
   { group:"Opérations", icon:"🗺", items:[
     { id:"controle_journee", label:"Contrôle Journée",  icon:"📋", roles:["dg","finance","dir_commercial"] },
@@ -147,6 +149,7 @@ const NAV_GROUPS = [
   { group:"Outils", icon:"🛠", items:[
     { id:"ai",       label:"Assistant IA", icon:"🤖", roles:[] },
     { id:"settings", label:"Paramètres",   icon:"⚙",  roles:[] },
+    { id:"ai_copilot_hub", label:"Propositions IA", icon:"🤖", roles:[] },
   ]},
 ];
 
@@ -312,7 +315,9 @@ export default function App() {
       case "fiche_fournisseur": return <FournisseursPage {...p} f={null} allF={fournisseurs} addAudit={addAudit}/>;
       case "traite":           return <TraitessPage {...p} traites={traites} setTraites={setTraites} factures={factures} bls={bls} clients={clients} fournisseurs={fournisseurs} addNotif={() => {}} onSaved={() => reloadSupa(["traites"])}/>;
       case "clientpage":      return <ClientPage clients={clients} setClients={setClients} addAudit={addAudit} factures={factures} bls={bls} onSaved={() => reloadSupa(["clients","factures","delivery_orders"])}/>;
+      case "liste_prix":       return <ListePrixPage {...p} prixArticles={[]} setPrixArticles={() => {}} promotions={[]} setPromotions={() => {}} addAudit={addAudit}/>;
       case "objectifs":         return <ObjectifsPage {...p} objectifsDG={[]} setObjectifsDG={() => {}} objectifsDept={[]} setObjectifsDept={() => {}} objectifsInt={[]} setObjectifsInt={() => {}}/>;
+      case "ai_copilot_hub":      return <AICopilotHub {...p} proposals={[]} setProposals={() => {}} clients={clients} factures={factures}/>;
       case "reception_mp":
       case "receptions":         return <ReceptionFournisseurPage user={user} receptions={receptions} setReceptions={setReceptions} cmp={cmp} addAudit={addAudit}/>;
       case "gestion_commerciale": 

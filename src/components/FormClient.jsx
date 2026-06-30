@@ -2,6 +2,83 @@ import { useState } from "react";
 import { Card, Btn, Modal, Input, Select, Textarea, Toast, Bdg, ExportFullMenu } from "../components/ui.jsx";
 import { fmt, daysUntil, TODAY } from "../data/demoData.js";
 
+// Correspondance zones commerciales → villes réelles reconnues par Nominatim
+const ZONE_TO_CITY = {
+  "Tunis Nord": "Tunis", "Tunis Centre": "Tunis", "Tunis Sud": "Tunis",
+  "Grand Tunis": "Tunis", "Sfax": "Sfax", "Sousse": "Sousse",
+  "Bizerte": "Bizerte", "Nabeul": "Nabeul", "Monastir": "Monastir",
+  "Kairouan": "Kairouan", "Autre": ""
+};
+
+async function geocodeTunisie(adresse, zone = "") {
+  if (!adresse?.trim()) return null;
+
+  const BASE = "https://nominatim.openstreetmap.org/search";
+  const HEADERS = { "User-Agent": "TortiTrack-App/1.0", "Accept-Language": "fr" };
+
+  // Nettoyage : espaces multiples, virgules consécutives
+  const clean = adresse.trim().replace(/\s+/g, " ").replace(/,\s*,/g, ",");
+  const parts = clean.split(",").map(s => s.trim()).filter(Boolean);
+  const city = ZONE_TO_CITY[zone] ?? (zone !== "Autre" ? zone : "");
+
+  // Requête free-form
+  async function tryFreeform(q) {
+    try {
+      const url = `${BASE}?format=json&limit=1&countrycodes=tn&accept-language=fr&q=${encodeURIComponent(q)}`;
+      const r = await fetch(url, { headers: HEADERS });
+      if (!r.ok) return null;
+      const d = await r.json();
+      if (d?.length > 0) return { latitude: parseFloat(d[0].lat), longitude: parseFloat(d[0].lon) };
+    } catch { /* ignore */ }
+    return null;
+  }
+
+  // Requête structurée Nominatim (plus précise pour les rues)
+  async function tryStructured(street, cityName) {
+    try {
+      const params = new URLSearchParams({
+        format: "json", limit: "1", countrycodes: "tn", "accept-language": "fr",
+        street, city: cityName, country: "Tunisie"
+      });
+      const r = await fetch(`${BASE}?${params}`, { headers: HEADERS });
+      if (!r.ok) return null;
+      const d = await r.json();
+      if (d?.length > 0) return { latitude: parseFloat(d[0].lat), longitude: parseFloat(d[0].lon) };
+    } catch { /* ignore */ }
+    return null;
+  }
+
+  // Stratégie 1 : adresse complète nettoyée + Tunisie
+  let res = await tryFreeform(`${clean}, Tunisie`);
+  if (res) return res;
+
+  // Stratégie 2 : recherche structurée rue + ville réelle
+  if (parts.length >= 1 && city) {
+    res = await tryStructured(parts[0], city);
+    if (res) return res;
+  }
+
+  // Stratégie 3 : premier segment + ville réelle (free-form)
+  if (parts.length >= 1 && city) {
+    res = await tryFreeform(`${parts[0]}, ${city}, Tunisie`);
+    if (res) return res;
+  }
+
+  // Stratégie 4 : segments sans le dernier + ville réelle
+  if (parts.length >= 2 && city) {
+    res = await tryFreeform(`${parts.slice(0, -1).join(", ")}, ${city}, Tunisie`);
+    if (res) return res;
+  }
+
+  // Stratégie 5 : ville seule (localisation approximative)
+  if (city) {
+    res = await tryFreeform(`${city}, Tunisie`);
+    if (res) return res;
+  }
+
+  return null;
+}
+
 const CLIENT_ZONES   = ["Tunis Nord","Tunis Centre","Tunis Sud","Grand Tunis","Sfax","Sousse","Bizerte","Nabeul","Monastir","Kairouan","Autre"];
 const CLIENT_TYPES   = ["Grossiste","Semi-Grossiste","Détaillant","Supérette","Épicerie","GMS","Café","Restaurant","Hôtel","Station-Service","Cantine","Revendeur","Autre"];
 const CLIENT_CANAUX  = ["Direct Vendeur","Commande Téléphonique","Commande en Ligne","Grossiste","Export"];
@@ -82,9 +159,12 @@ export function scoreProfilClient(c) {
 }
 
 export function NewClientFormV2({ onSave, users = [] }) {
-  // 💡 Changement : On gère un tableau de fichiers au lieu d'un seul
   const [selectedFiles, setSelectedFiles] = useState([]);
   
+  // État local pour gérer le chargement du calcul GPS
+  const [loadingGps, setLoadingGps] = useState(false);
+  const [gpsStatus, setGpsStatus] = useState(""); // Pour afficher un petit retour (Succès / Échec)
+
   const commercials = users.filter(
     (u) => u.roles?.includes("commercial") || u.roles?.includes("chef_commercial")
   );
@@ -165,7 +245,30 @@ export function NewClientFormV2({ onSave, users = [] }) {
       [k]: f[k].includes(v) ? f[k].filter((x) => x !== v) : [...f[k], v],
     }));
 
-  const profil = scoreProfilClient ? scoreProfilClient({
+
+  // 📍 2. LOGIQUE DU CALCUL AUTOMATIQUE SUR LE ONBLUR
+  const handleAddressBlur = async () => {
+    if (!form.adresse) return;
+
+    setLoadingGps(true);
+    setGpsStatus("recherche");
+
+    const coords = await geocodeTunisie(form.adresse, form.zone);
+
+    if (coords) {
+      setForm((f) => ({
+        ...f,
+        lat: coords.latitude,
+        lng: coords.longitude
+      }));
+      setGpsStatus("success");
+    } else {
+      setGpsStatus("error");
+    }
+    setLoadingGps(false);
+  };
+
+  const profil = typeof scoreProfilClient !== "undefined" ? scoreProfilClient({
     ...form,
     terms: parseInt(form.terms) || 0,
     creditLimit: parseInt(form.creditLimit) || 0,
@@ -179,50 +282,13 @@ export function NewClientFormV2({ onSave, users = [] }) {
     freqCommandeJours: parseInt(form.freqCommandeJours) || 0,
   }) : { manquantsOblig: [], score: 0, couleur: "#gray", obligOK: 0, obligTotal: 0, impoOK: 0, impoTotal: 0, optOK: 0, optTotal: 0 };
 
-  const obligOK = profil.manquantsOblig.length === 0;
-
-  const SensBar = ({ label, k }) => (
-    <div className="flex items-center gap-2 text-xs">
-      <span className="w-28 text-gray-500">{label}</span>
-      <div className="flex gap-1">
-        {[1, 2, 3, 4, 5].map((n) => (
-          <button
-            key={n}
-            type="button"
-            onClick={() => up(k, n)}
-            className={`w-6 h-6 rounded-full text-xs font-bold border transition-all ${
-              form[k] >= n
-                ? "bg-blue-600 text-white border-blue-600"
-                : "bg-white text-gray-300 border-gray-200"
-            }`}
-          >
-            {n}
-          </button>
-        ))}
-      </div>
-      <span className="text-gray-400 text-xs">
-        {form[k] <= 2 ? "Faible" : form[k] <= 3 ? "Moyenne" : "Forte"}
-      </span>
-    </div>
-  );
-
-  const CHK = ({ label, k }) => (
-    <label className="flex items-center gap-2 cursor-pointer text-xs p-2 rounded-xl border border-gray-100 hover:bg-gray-50">
-      <input
-        type="checkbox"
-        checked={!!form[k]}
-        onChange={(e) => up(k, e.target.checked)}
-        className="w-4 h-4 rounded accent-blue-600"
-      />
-      <span className="font-semibold text-gray-700">{label}</span>
-    </label>
-  );
-
   const TABS = [
     ["n1", "🔴 Obligatoires"],
     ["n2", "🟡 PDV & Marché"],
     ["n3", "🟣 Optionnels"],
   ];
+
+  const obligOK = profil.manquantsOblig.length === 0;
 
   return (
     <div className="space-y-3">
@@ -249,11 +315,6 @@ export function NewClientFormV2({ onSave, users = [] }) {
               style={{ width: `${profil.score}%`, background: profil.couleur }}
             />
           </div>
-          <div className="flex gap-4 mt-1 text-xs text-gray-400">
-            <span>Obligatoires {profil.obligOK}/{profil.obligTotal} (×70%)</span>
-            <span>Importants {profil.impoOK}/{profil.impoTotal} (×20%)</span>
-            <span>Optionnels {profil.optOK}/{profil.optTotal} (×10%)</span>
-          </div>
         </div>
       </div>
 
@@ -268,6 +329,7 @@ export function NewClientFormV2({ onSave, users = [] }) {
         {TABS.map(([id, l]) => (
           <button
             key={id}
+            type="button"
             onClick={() => setTab(id)}
             className={`px-3 py-2 rounded-xl text-xs font-bold border flex-1 min-h-[38px] transition-all ${
               tab === id ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-500 border-gray-200"
@@ -282,7 +344,7 @@ export function NewClientFormV2({ onSave, users = [] }) {
       {tab === "n1" && (
         <div className="space-y-3">
           <div className="text-xs text-red-700 bg-red-50 border border-red-100 rounded-xl p-2 font-semibold">
-            🔴 15 champs obligatoires · Création bloquée si incomplet · Poids 70% du profil
+            🔴 15 champs obligatoires · Création bloquée si incomplet
           </div>
           <div className="grid grid-cols-2 gap-3">
             <Input label="Raison sociale *" value={form.raisonSociale} onChange={(e) => up("raisonSociale", e.target.value)} placeholder="Raison sociale officielle" className="col-span-2" />
@@ -293,10 +355,39 @@ export function NewClientFormV2({ onSave, users = [] }) {
             <Input label="Matricule fiscal *" value={form.matFiscal} onChange={(e) => up("matFiscal", e.target.value)} placeholder="1234567A/M/P/000" />
             <Input label="Responsable principal *" value={form.responsable} onChange={(e) => up("responsable", e.target.value)} placeholder="Prénom Nom" />
             <Input label="Téléphone *" value={form.phone} onChange={(e) => up("phone", e.target.value)} placeholder="+216 xx xxx xxx" type="tel" />
-            <Input label="Adresse complète *" value={form.adresse} onChange={(e) => up("adresse", e.target.value)} placeholder="Rue, ville, code postal" className="col-span-2" />
+            
+            {/* 📍 3. AJOUT DU ONBLUR ET DE L'INDICATEUR GPS SUR L'ADRESSE */}
+            <div className="col-span-2 relative">
+              <Input 
+                label="Adresse complète *" 
+                value={form.adresse} 
+                onChange={(e) => up("adresse", e.target.value)} 
+                onBlur={handleAddressBlur} // Déclenche la recherche géolocalisée
+                placeholder="Ex: 12 Rue de la Physique, La Charguia" 
+              />
+              <div className="absolute right-3 bottom-2.5 flex items-center">
+                {loadingGps && <span className="text-[10px] text-blue-500 font-medium animate-pulse">⚡ Recherche GPS...</span>}
+                {gpsStatus === "success" && <span className="text-[10px] text-green-600 font-bold">✅ Lat/Lng OK</span>}
+                {gpsStatus === "error" && <span className="text-[10px] text-amber-600 font-semibold">⚠ Adresse introuvable</span>}
+              </div>
+            </div>
+
             <Select label="Zone commerciale *" value={form.zone} onChange={(e) => up("zone", e.target.value)}>
               {typeof CLIENT_ZONES !== "undefined" && CLIENT_ZONES.map((z) => <option key={z}>{z}</option>)}
             </Select>
+
+            {/* Champs de vérification visuelle pour le commercial */}
+            <div className="grid grid-cols-2 gap-2 col-span-1">
+              <div>
+                <label className="block text-[11px] font-medium text-gray-400 mb-1">Latitude (Auto)</label>
+                <input type="text" value={form.lat} readOnly placeholder="--" className="w-full text-xs p-2 rounded-xl bg-gray-50 border border-gray-200 text-gray-500 outline-none h-[38px]" />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-gray-400 mb-1">Longitude (Auto)</label>
+                <input type="text" value={form.lng} readOnly placeholder="--" className="w-full text-xs p-2 rounded-xl bg-gray-50 border border-gray-200 text-gray-500 outline-none h-[38px]" />
+              </div>
+            </div>
+
             <Select label="Commercial affecté *" value={form.commercialId} onChange={(e) => up("commercialId", e.target.value)}>
               <option value="">Sélectionner...</option>
               {commercials.length > 0 ? commercials.map((u) => (
@@ -529,9 +620,31 @@ export function NewClientFormV2({ onSave, users = [] }) {
       <div className="flex gap-2 pt-2">
         <Btn
           variant="success"
-          onClick={() =>
+          onClick={async () => {
+            let finalLat = form.lat;
+            let finalLng = form.lng;
+
+            // Si l'adresse est renseignée mais les coordonnées sont absentes,
+            // on les calcule maintenant (cas où l'utilisateur clique Sauvegarder
+            // sans avoir quitté le champ adresse, ce qui court-circuite onBlur)
+            if (form.adresse && (finalLat === "" || finalLat === null || finalLat === undefined)) {
+              setLoadingGps(true);
+              setGpsStatus("recherche");
+              const coords = await geocodeTunisie(form.adresse, form.zone);
+              if (coords) {
+                finalLat = coords.latitude;
+                finalLng = coords.longitude;
+                setGpsStatus("success");
+              } else {
+                setGpsStatus("error");
+              }
+              setLoadingGps(false);
+            }
+
             onSave({
               ...form,
+              lat: finalLat,
+              lng: finalLng,
               codeClient: typeof genCodeClient !== "undefined" ? genCodeClient(form.type) : "CL-" + Date.now(),
               terms: parseInt(form.terms) || 30,
               creditLimit: parseInt(form.creditLimit) || 5000,
@@ -545,12 +658,12 @@ export function NewClientFormV2({ onSave, users = [] }) {
               dateCreation: new Date().toISOString().split("T")[0],
               dormant: false,
               lastOrder: null,
-            }, selectedFiles) // 👈 Transmission du tableau des fichiers à la place d'un seul fichier
-          }
-          disabled={!obligOK}
+            }, selectedFiles);
+          }}
+          disabled={!obligOK || loadingGps}
           className="flex-1"
         >
-          ✓ Créer le client {!obligOK && `— ${profil.manquantsOblig.length} champ(s) manquant(s)`}
+          {loadingGps ? "⚡ Calcul GPS en cours..." : `✓ Créer le client${!obligOK ? ` — ${profil.manquantsOblig.length} champ(s) manquant(s)` : ""}`}
         </Btn>
       </div>
     </div>
