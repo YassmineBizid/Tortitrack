@@ -1,7 +1,9 @@
-import { useState, useMemo } from "react";
+import { useState , useEffect, useMemo} from "react";
 import { Ico } from "../components/Ico";
 import { TODAY, fmt, ARTS, CLIENTS, daysUntil, allocateFEFO } from "../constants";
 import { printFacture, printRecuPaiement, exportExcel } from "../components/shared";
+import { sb } from "../supabaseClient.js";
+
 
 const TVA = 0.19;
 
@@ -58,6 +60,7 @@ export function FacturePage({ user = {}, factures: initFacs = [], setFactures: o
   const [form,     setForm]  = useState(EMPTY_FORM);
   const [item,     setItem]  = useState({ artId: "", qty: "" });
   const [saving,   setSaving]= useState(false);
+  const [brands, setBrands] = useState([]);
 
   const up = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -68,6 +71,20 @@ export function FacturePage({ user = {}, factures: initFacs = [], setFactures: o
   const mpaye  = parseFloat(form.montantPaye) || 0;
   const reste  = Math.max(0, totTTC - mpaye);
   const autoStatus = reste <= 0 ? "payee" : mpaye > 0 ? "partiellement" : "credit";
+
+  useEffect(() => {
+    async function fetchBrands() {
+      try {
+        const { data, error } = await sb.from("brands").select("id, name").order("name");
+        if (error) throw error;
+        if (data) setBrands(data);
+      } catch (err) {
+        console.error("Erreur lors de la récupération des marques:", err);
+      }
+    }
+
+    fetchBrands();
+  }, []);
 
   const addItem = () => {
     if (!item.artId || !item.qty) return;

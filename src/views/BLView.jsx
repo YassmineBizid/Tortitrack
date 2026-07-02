@@ -32,7 +32,6 @@ export default function BLView({ user, bls, setBls, lots, setLots, addAudit, art
     return (bls || []).filter(b => {
       const matchS = filterS === "all" || b.status === filterS;
 
-      // Sécurité additionnelle : b.client et b.number peuvent aussi être undefined
       const clientName = b.client || b.client_name || "";
       const blNumber = b.number || b.num || "";
 

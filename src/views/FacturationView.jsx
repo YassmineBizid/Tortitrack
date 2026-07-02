@@ -37,35 +37,49 @@ function FacBadge({ status }) {
   return <span className="px-2 py-0.5 rounded-full text-xs font-bold border" style={{ color:cfg.c, background:cfg.c+"15", borderColor:cfg.c+"30" }}>{cfg.l}</span>;
 }
 
-function CreateFactureWizard({ onSave, onClose, user, clientsList = [], brands: brandsProp = [] }) {
+function CreateFactureWizard({ onSave, onClose, user, arts = [], clientsList = [], brands = [], lots = [] }) {
   // Use real clients from Supabase if available, fallback to hardcoded list
   const displayClients = clientsList.length > 0
     ? clientsList.map(c => ({ id: c.id, nom: c.name, canal: c.type || "Client", credit: c.terms || 0 }))
     : CLIENTS_FACTURATION;
-  const displayBrands = brandsProp.length > 0 ? brandsProp : MARQUES;
+  
   const [step, setStep] = useState(1);
-  const [f, setF] = useState({ clientId:"", blRefs:[""], items:[], modePaiement:"especes", montantPaye:"", notes:"" });
+  const [f, setF] = useState({ clientId:"", blRefs:[""], items: [{ brandId: "", artId: "", qty: "" }], modePaiement:"especes", montantPaye:"", notes:"" });
   const [selectedBrandId, setSelectedBrandId] = useState("");
 
   const filteredArts = useMemo(() => {
-    if (!selectedBrandId) return ARTS;
-    return ARTS.filter(a => a.brand_id && String(a.brand_id) === String(selectedBrandId));
-  }, [selectedBrandId]);
+    if (!selectedBrandId) return arts;
+    return arts.filter(a => {
+      const artBrandId = a.brand_id || a.marque_id;
+      return artBrandId && String(artBrandId) === String(selectedBrandId);
+    });
+  }, [selectedBrandId, arts]);
 
   const handleBrandChange = (brandId) => {
     setSelectedBrandId(brandId);
-    // Reset artId on items whose article no longer belongs to the new brand
     setF(x => ({
       ...x,
       items: x.items.map(item => {
         if (!item.artId) return item;
-        const art = ARTS.find(a => a.id === item.artId);
-        return brandId && art?.brand_id && String(art.brand_id) !== String(brandId)
-          ? { ...item, artId: "", artCode: "", prixU: "" }
+        const article = arts.find(a => a.id === item.artId);
+        const artBrandId = article?.brand_id || article?.marque_id;
+        return brandId && artBrandId && String(artBrandId) !== String(brandId)
+          ? { ...item, artId: "" }
           : item;
       })
     }));
   };
+  const up = (k,v) => setF(x=>({...x,[k]:v}));
+  const upItem = (i, k, v) => {
+    const items = [...f.items];
+    items[i] = { ...items[i], [k]: v };
+    if (k === "brandId") items[i].artId = "";
+    setF(x => ({ ...x, items }));
+  };
+
+  const currentBrandName = selectedBrandId
+    ? (brands.find(b => String(b.id) === String(selectedBrandId))?.name || brands.find(b => String(b.id) === String(selectedBrandId))?.nom || "")
+    : "";
 
   const client = displayClients.find(c => c.id === f.clientId);
   const totalHT  = f.items.reduce((s,i) => s + (parseFloat(i.prixU)||0) * (parseInt(i.qty)||0), 0);
@@ -73,13 +87,7 @@ function CreateFactureWizard({ onSave, onClose, user, clientsList = [], brands: 
   const totalTTC = totalHT + tva;
 
   const addItem  = () => setF(x => ({...x, items:[...x.items, { artId:"", artCode:"", prixU:"", qty:1, id:Date.now() }]}));
-  const upItem   = (id, k, v) => {
-    setF(x => ({...x, items:x.items.map(i => {
-      if (i.id !== id) return i;
-      const art = k === "artId" ? ARTS.find(a => a.id === v) : null;
-      return { ...i, [k]:v, ...(art ? { artCode:art.code, prixU:art.price.toFixed(3) } : {}) };
-    })}));
-  };
+  
   const delItem  = (id) => setF(x => ({...x, items:x.items.filter(i => i.id !== id)}));
 
   const montantPaye = parseFloat(f.montantPaye) || 0;
@@ -200,83 +208,100 @@ return (
       Suivant →
     </Btn>
   </div>
-)}
-      {step === 2 && (
-        <div className="space-y-3">
-          {/* Filtre par marque */}
-          <div>
-            <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Filtrer par marque</label>
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => handleBrandChange("")}
-                className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition-all ${
-                  !selectedBrandId ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"
-                }`}
-              >
-                Toutes
-              </button>
-              {displayBrands.map(b => {
-                const col = b.couleur || "#3b82f6";
-                return (
-                  <button
-                    key={b.id}
-                    onClick={() => handleBrandChange(String(b.id))}
-                    className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition-all`}
-                    style={String(selectedBrandId) === String(b.id)
-                      ? { background: col, color: "#fff", borderColor: col }
-                      : { background: col+"15", color: col, borderColor: col+"40" }}
-                  >
-                    {b.name || b.nom}
-                  </button>
-                );
-              })}
-              {selectedBrandId && (
-                <span className="text-[10px] bg-blue-50 text-blue-700 font-bold px-2 py-1 rounded-full border border-blue-200 self-center">
-                  {filteredArts.length} article{filteredArts.length !== 1 ? "s" : ""}
-                </span>
-              )}
+)}{step === 2 && (
+      <div className="space-y-3">
+        {/* Filtre par marque */}
+        <Select
+          label="Filtrer par Marque"
+          value={selectedBrandId}
+          onChange={e => handleBrandChange(e.target.value)}
+          className="border-blue-300 bg-blue-50/30"
+        >
+          <option value="">Toutes les marques</option>
+          {brands.map(b => (
+            <option key={b.id} value={b.id}>{b.name || b.nom}</option>
+          ))}
+        </Select>
+
+        <div className="bg-gray-50/50 p-3 rounded-2xl border border-gray-100">
+          <div className="flex justify-between items-center mb-2">
+            <div className="text-xs font-bold text-gray-400 uppercase">
+              Articles {currentBrandName ? `(${currentBrandName})` : ""} *
             </div>
+            {selectedBrandId && (
+              <span className="text-[10px] bg-blue-100 text-blue-700 font-bold px-2 py-0.5 rounded-full">
+                Filtre actif: {filteredArts.length} article{filteredArts.length > 1 ? "s" : ""}
+              </span>
+            )}
           </div>
 
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-bold text-gray-700">Articles</span>
-            <Btn variant="secondary" size="sm" onClick={addItem}>+ Article</Btn>
-          </div>
-          {f.items.map(item => (
-            <div key={item.id} className="flex gap-2 items-end bg-gray-50 p-3 rounded-xl">
-              <div className="flex-1">
-                <select key={`sel-${item.id}-${selectedBrandId}`} value={item.artId} onChange={e => upItem(item.id,"artId",e.target.value)} className="w-full border border-gray-200 rounded-xl px-3 py-2 text-xs focus:outline-none mb-1">
-                  <option value="">Choisir article...</option>
-                  {filteredArts.length > 0
-                    ? filteredArts.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name} — {a.price.toFixed(3)} DT</option>)
-                    : <option disabled>Aucun article pour cette marque</option>
-                  }
-                </select>
-                <input type="number" min="0" step="0.001" value={item.prixU} onChange={e => upItem(item.id,"prixU",e.target.value)} className="w-full border border-gray-200 rounded-xl px-3 py-1.5 text-xs" placeholder="Prix HT"/>
-              </div>
-              <div className="w-20 flex flex-col gap-1 items-center">
-                <div className="flex items-center border rounded-xl overflow-hidden">
-                  <button onClick={() => upItem(item.id,"qty",Math.max(1,(parseInt(item.qty)||1)-1))} className="px-2 py-1 bg-gray-100 hover:bg-gray-200 text-xs font-bold">−</button>
-                  <input type="number" value={item.qty} onChange={e => upItem(item.id,"qty",e.target.value)} className="w-12 text-center text-xs py-1 focus:outline-none"/>
-                  <button onClick={() => upItem(item.id,"qty",(parseInt(item.qty)||0)+1)} className="px-2 py-1 bg-gray-100 hover:bg-gray-200 text-xs font-bold">+</button>
+          <div className="space-y-2">
+            {f.items.map((item, i) => {
+              const totalAvail = item.artId
+                ? lots.reduce((sum, lot) => {
+                    const lotArtId = lot.artId || lot.product_id || lot.articleId;
+                    const lotQty = Number(lot.availQty ?? lot.qty ?? 0) || 0;
+                    return lotArtId && String(lotArtId) === String(item.artId) ? sum + lotQty : sum;
+                  }, 0)
+                : 0;
+
+              return (
+                <div key={`item-${i}-${selectedBrandId}`} className="flex gap-2 items-end">
+                  <Select
+                    key={`select-${i}-${selectedBrandId}`}
+                    className="flex-1"
+                    value={item.artId}
+                    onChange={e => upItem(i, "artId", e.target.value)}
+                  >
+                    <option value="">Sélectionner un article...</option>
+                    {filteredArts.length > 0 ? (
+                      filteredArts.map(a => (
+                        <option key={a.id} value={a.id}>{a.code || a.ref} — {a.name}</option>
+                      ))
+                    ) : (
+                      <option disabled>Aucun article disponible pour cette marque</option>
+                    )}
+                  </Select>
+
+                  <div className="flex flex-col gap-1">
+                    <input
+                      type="number"
+                      min="1"
+                      placeholder="Qté"
+                      value={item.qty}
+                      onChange={e => upItem(i, "qty", e.target.value)}
+                      className="w-20 border border-gray-200 rounded-xl px-2 py-2 text-sm text-center focus:outline-none min-h-[44px]"
+                    />
+                    {item.artId && <div className="text-[10px] text-gray-400 text-center">Dispo: {totalAvail.toLocaleString()}</div>}
+                  </div>
+
+                  {f.items.length > 1 && (
+                    <Btn variant="ghost" size="sm" className="mb-1" onClick={() => setF(x => ({ ...x, items: x.items.filter((_, idx) => idx !== i) }))}>✕</Btn>
+                  )}
                 </div>
-                <span className="text-xs font-bold text-blue-700">{((parseFloat(item.prixU)||0)*(parseInt(item.qty)||0)).toFixed(3)}</span>
-              </div>
-              <button onClick={() => delItem(item.id)} className="w-7 h-7 bg-red-100 hover:bg-red-200 text-red-600 rounded-lg text-xs">✕</button>
-            </div>
-          ))}
-          {f.items.length === 0 && <div className="text-center text-gray-400 py-4 bg-gray-50 rounded-xl text-sm">Ajoutez des articles</div>}
-          <div className="p-3 bg-blue-50 rounded-xl text-xs space-y-1 font-medium">
-            <div className="flex justify-between"><span>Total HT</span><span>{totalHT.toFixed(3)} DT</span></div>
-            <div className="flex justify-between text-gray-500"><span>TVA 19%</span><span>{tva.toFixed(3)} DT</span></div>
-            <div className="flex justify-between font-black text-blue-700 text-sm border-t border-blue-100 pt-1 mt-1"><span>Total TTC</span><span>{totalTTC.toFixed(3)} DT</span></div>
-          </div>
-          <div className="flex gap-2">
-            <Btn variant="secondary" onClick={() => setStep(1)}>← Retour</Btn>
-            <Btn variant="primary" className="flex-1" disabled={!f.items.length} onClick={() => setStep(3)}>Suivant →</Btn>
+              );
+            })}
+
+            <Btn variant="secondary" size="sm" onClick={() => setF(x => ({ ...x, items: [...x.items, { brandId: "", artId: "", qty: "" }] }))}>
+              + Article
+            </Btn>
           </div>
         </div>
-      )}
+
+        {/* Boutons de navigation Étape 2 insérés ici */}
+        <div className="flex gap-2 pt-2">
+          <Btn variant="secondary" onClick={() => setStep(1)}>← Retour</Btn>
+          <Btn 
+            variant="primary" 
+            className="flex-1" 
+            disabled={f.items.length === 0 || f.items.some(item => !item.artId || !item.qty)} 
+            onClick={() => setStep(3)}
+          >
+            Suivant →
+          </Btn>
+        </div>
+      </div>
+    )}
 
       {step === 3 && (
         <div className="space-y-3">
@@ -346,7 +371,7 @@ return (
   );
 }
 
-export default function FacturationView({ user, factures, setFactures, addAudit, clients = [], onSaved }) {
+export default function FacturationView({ user, factures, setFactures, addAudit, clients = [], brands = [], arts = [], lots = [], onSaved }) {
   const [showNew,   setShowNew]   = useState(false);
   const [filter,    setFilter]    = useState("all");
   const [search,    setSearch]    = useState("");
@@ -413,6 +438,8 @@ export default function FacturationView({ user, factures, setFactures, addAudit,
     }
   };
 
+
+
   const printFacture = (fac) => {
     const statutLabel = { brouillon:"Brouillon", emise:"Émise", payee:"Payée", partiellement:"Paiement partiel", credit:"Crédit", annulee:"Annulée" };
     const statutColor = { brouillon:"#94a3b8", emise:"#3b82f6", payee:"#059669", partiellement:"#d97706", credit:"#dc2626", annulee:"#6b7280" };
@@ -424,9 +451,35 @@ export default function FacturationView({ user, factures, setFactures, addAudit,
           const pu    = parseFloat(i.prixU) || 0;
           const qty   = parseInt(i.qty) || 0;
           const total = (pu * qty).toFixed(3);
+
+
+          const articleTrouve = arts.find(a => String(a.id) === String(i.artId));
+          
+          
+          let marqueNom = "";
+          if (articleTrouve) {
+            const bId = articleTrouve.brandId || articleTrouve.brand_id;
+            const marqueTrouvee = brands.find(b => String(b.id) === String(bId));
+            if (marqueTrouvee) {
+              marqueNom = marqueTrouvee.name || marqueTrouvee.nom || "";
+            }
+          }
+          
+          let articleDesignation = "";
+          if (articleTrouve) {
+            const codeRef = articleTrouve.code || articleTrouve.ref || "";
+            const nomArt = articleTrouve.name || "";
+            const detailArt = `${codeRef} — ${nomArt}`.replace(/^ — /, "");
+            
+            // Si une marque existe, on l'ajoute au début entre crochets ou parenthèses
+            articleDesignation = marqueNom ? `[${marqueNom}] ${detailArt}` : detailArt;
+          } else {
+            articleDesignation = i.artId || "—";
+          }
+
           return `<tr style="background:${idx%2===0?"#fff":"#f8fafc"}">
             <td style="padding:8px 10px;border-bottom:1px solid #e2e8f0">${idx+1}</td>
-            <td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;font-weight:600">${i.artCode||i.artId||"—"}</td>
+            <td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;font-weight:600">${articleDesignation}</td>
             <td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;text-align:center">${qty}</td>
             <td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;text-align:right">${pu.toFixed(3)} DT</td>
             <td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:700">${total} DT</td>
@@ -662,7 +715,7 @@ export default function FacturationView({ user, factures, setFactures, addAudit,
 
       {/* Modal nouvelle facture */}
       <Modal open={showNew} onClose={() => setShowNew(false)} title="Nouvelle Facture" maxWidth="max-w-2xl">
-        <CreateFactureWizard onSave={saveFac} onClose={() => setShowNew(false)} user={user} clientsList={clients}/>
+        <CreateFactureWizard onSave={saveFac} onClose={() => setShowNew(false)} user={user} clientsList={clients} brands={brands} arts={arts} lots={lots}/>
       </Modal>
     </div>
   );

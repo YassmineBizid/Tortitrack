@@ -397,11 +397,12 @@ export default function GestionCommercialeHub({
               <FacturationView
                 user={user}
                 arts={arts}
+                brands={brands}
+                lots={lots}
                 clients={singleClientArray}
                 addAudit={addAudit}
                 factures={factures}
                 setFactures={setFactures}
-                lots={lots}
                 onSaved={onSaved}
               />
             )}

@@ -24,90 +24,13 @@
 // ║  5. Le Copilote IA appelle l'API Anthropic — clé gérée par l'env     ║
 // ╚═══════════════════════════════════════════════════════════════════════╝
 import { useState, useEffect } from "react";
+
 import { Card, Btn, Toast , Bdg, Modal, Input, Select} from "../components/ui.jsx";
-// ─── Données fournisseurs enrichies ──────────────────────────────────
-const FOURNISSEURS_DATA = [
-  {id:"f1",codeFournisseur:"FRN-001",name:"Moulins du Nord",statut:"actif",
-   pays:"Tunisie",ville:"Tunis",adresse:"Zone Industrielle Ben Arous, Tunis 2013",
-   siteWeb:"www.moulins-nord.tn",dateCreation:"2023-01-15",acheteurResponsable:"Chaieb Tarek",
-   contacts:[{nom:"Ben Ali Mohamed",fonction:"Commercial",tel:"+216 71 xxx xxx",portable:"+216 55 xxx xxx",
-     whatsapp:"+216 55 xxx xxx",email:"m.benali@moulins-nord.tn",langue:"Arabe/Français",principal:true}],
-   devise:"TND",condPaiement:"Virement 30j",delaiPaiementNegocie:30,incoterm:"DAP",
-   modeLivraison:"Transport propre",moq:"500 kg",delaiMoyen:3,delaiMoisPrecedent:3,
-   conditionsParticulieres:"Livraison entre 7h et 12h",
-   produits:[
-     {categorie:"Matière première",matiere:"Farine T55",refFournisseur:"FT55-001",refInterne:"MP-001",
-      certHalal:true,certHalalExpiry:"2027-06-30",certQualite:true,certQualiteExpiry:"2026-12-31",
-      prixActuel:0.380,prixPrecedent:0.360,prixN2:0.350},
-     {categorie:"Matière première",matiere:"Farine complète",refFournisseur:"FC-002",refInterne:"MP-002",
-      certHalal:true,certHalalExpiry:"2027-06-30",certQualite:true,certQualiteExpiry:"2026-12-31",
-      prixActuel:0.420,prixPrecedent:0.410,prixN2:0.400}],
-   tauxConformite:96,nbNC:1,nbNCMajeures:0,nbReclamations90j:1,
-   nbCommandes:12,totalAchats:22800,scoreReactivite:85,
-   evaluations:[{mois:"2026-05",prix:88,qualite:95,delai:95,reactivite:85,condPmt:80,docQual:90}],
-   categorieRisque:"low",
-   historiqueDocs:[{type:"Certificat Qualité",expiry:"2026-12-31"},{type:"Halal",expiry:"2027-06-30"}]},
 
-  {id:"f2",codeFournisseur:"FRN-002",name:"Huiles Réunies SA",statut:"actif",
-   pays:"Tunisie",ville:"Sfax",adresse:"Port de Sfax, Zone Industrielle",
-   siteWeb:"",dateCreation:"2023-06-01",acheteurResponsable:"Chaieb Tarek",
-   contacts:[{nom:"Trabelsi Sonia",fonction:"Directrice commerciale",tel:"+216 74 xxx xxx",
-     portable:"+216 98 xxx xxx",whatsapp:"",email:"s.trabelsi@huiles-reunies.tn",langue:"Arabe",principal:true}],
-   devise:"TND",condPaiement:"Chèque 45j",delaiPaiementNegocie:45,incoterm:"EXW",
-   modeLivraison:"Enlèvement",moq:"200 L",delaiMoyen:5,delaiMoisPrecedent:4,
-   conditionsParticulieres:"",
-   produits:[
-     {categorie:"Matière première",matiere:"Huile végétale",refFournisseur:"HV-001",refInterne:"MP-010",
-      certHalal:false,certQualite:true,certQualiteExpiry:"2026-08-15",
-      prixActuel:2.850,prixPrecedent:2.600,prixN2:2.500}],
-   tauxConformite:88,nbNC:3,nbNCMajeures:1,nbReclamations90j:2,
-   nbCommandes:8,totalAchats:15600,scoreReactivite:70,
-   evaluations:[{mois:"2026-05",prix:72,qualite:80,delai:78,reactivite:70,condPmt:65,docQual:75}],
-   categorieRisque:"medium",
-   historiqueDocs:[{type:"Certificat Qualité",expiry:"2026-08-15"}]},
+import { sb } from "../supabaseClient.js";
 
-  {id:"f3",codeFournisseur:"FRN-003",name:"Emballages Pro TN",statut:"actif",
-   pays:"Tunisie",ville:"Nabeul",adresse:"Zone Artisanale Nabeul",
-   siteWeb:"www.embpro.tn",dateCreation:"2024-01-10",acheteurResponsable:"Chaieb Tarek",
-   contacts:[{nom:"Mansour Karim",fonction:"Resp. ventes",tel:"+216 72 xxx xxx",
-     portable:"+216 20 xxx xxx",whatsapp:"+216 20 xxx xxx",email:"km@embpro.tn",langue:"Français",principal:true}],
-   devise:"TND",condPaiement:"Virement 45j",delaiPaiementNegocie:45,incoterm:"DAP",
-   modeLivraison:"Transport propre",moq:"1000 u.",delaiMoyen:7,delaiMoisPrecedent:5,
-   conditionsParticulieres:"Délai souvent dépassé",
-   produits:[
-     {categorie:"Consommable",matiere:"Films d'emballage",refFournisseur:"FE-001",refInterne:"C-001",
-      certHalal:false,certQualite:true,certQualiteExpiry:"2027-03-01",
-      prixActuel:0.045,prixPrecedent:0.042,prixN2:0.040},
-     {categorie:"Consommable",matiere:"Étiquettes",refFournisseur:"ET-002",refInterne:"C-002",
-      certHalal:false,certQualite:false,certQualiteExpiry:null,
-      prixActuel:0.008,prixPrecedent:0.008,prixN2:0.007}],
-   tauxConformite:82,nbNC:4,nbNCMajeures:2,nbReclamations90j:4,
-   nbCommandes:15,totalAchats:8700,scoreReactivite:60,
-   evaluations:[{mois:"2026-05",prix:65,qualite:70,delai:55,reactivite:60,condPmt:60,docQual:65}],
-   categorieRisque:"high",
-   historiqueDocs:[{type:"Certificat Qualité",expiry:"2027-03-01"}]},
 
-  {id:"f4",codeFournisseur:"FRN-004",name:"Sel & Épices TN",statut:"actif",
-   pays:"Tunisie",ville:"Sousse",adresse:"Zone Industrielle Sousse",
-   siteWeb:"",dateCreation:"2023-09-01",acheteurResponsable:"Chaieb Tarek",
-   contacts:[{nom:"Gharbali Faouzi",fonction:"Gérant",tel:"+216 73 xxx xxx",
-     portable:"+216 55 xxx xxx",whatsapp:"+216 55 xxx xxx",email:"fg@selepices.tn",langue:"Arabe",principal:true}],
-   devise:"TND",condPaiement:"Espèces",delaiPaiementNegocie:0,incoterm:"DAP",
-   modeLivraison:"Livraison incluse",moq:"50 kg",delaiMoyen:2,delaiMoisPrecedent:2,
-   conditionsParticulieres:"",
-   produits:[
-     {categorie:"Matière première",matiere:"Sel",refFournisseur:"SEL-001",refInterne:"MP-020",
-      certHalal:true,certHalalExpiry:"2028-01-01",certQualite:true,certQualiteExpiry:"2026-10-15",
-      prixActuel:0.180,prixPrecedent:0.180,prixN2:0.175},
-     {categorie:"Matière première",matiere:"Levure",refFournisseur:"LEV-001",refInterne:"MP-021",
-      certHalal:true,certHalalExpiry:"2028-01-01",certQualite:true,certQualiteExpiry:"2026-10-15",
-      prixActuel:1.200,prixPrecedent:1.100,prixN2:1.050}],
-   tauxConformite:94,nbNC:0,nbNCMajeures:0,nbReclamations90j:0,
-   nbCommandes:20,totalAchats:6400,scoreReactivite:95,
-   evaluations:[{mois:"2026-05",prix:90,qualite:92,delai:98,reactivite:95,condPmt:70,docQual:88}],
-   categorieRisque:"low",
-   historiqueDocs:[{type:"Certificat Halal",expiry:"2028-01-01"},{type:"Certificat Qualité",expiry:"2026-10-15"}]},
-];
+
 
 // ─── Score fournisseur IA (A/B/C/D) ──────────────────────────────────
 // Prix 25% · Qualité 25% · Délais 20% · Réactivité 10% · Paiement 10% · Doc 10%
@@ -202,16 +125,144 @@ function analyseIAFournisseur(f, allF=[]) {
   return {score,tier,partAchats,altF,prixMoyAlt,forces,faiblesses,decision,justification};
 }
 
-// ─── FournisseursPage v2 ──────────────────────────────────────────────
+
 export default function FournisseursPage({user, addAudit}) {
-  const [fournisseurs, setFournisseurs] = useState(FOURNISSEURS_DATA);
+  const [fournisseurs, setFournisseurs] = useState([]);
   const [selected,   setSelected]   = useState(null);
+  const [loading, setLoading] = useState(true);
   const [showForm,   setShowForm]   = useState(false);
   const [tabF,       setTabF]       = useState("liste");
   const [toast,      setToast]      = useState(null);
   const [chatInput,  setChatInput]  = useState("");
   const [chatMsgs,   setChatMsgs]   = useState([{role:"ai",text:"Bonjour ! Je suis le Copilote Achats IA. Posez vos questions sur les fournisseurs, prix, risques ou certificats."}]);
   const [chatLoading,setChatLoading]= useState(false);
+
+  useEffect(() => {
+    fetchFournisseurs();
+  }, []);
+
+  const fetchFournisseurs = async () => {
+    try {
+      setLoading(true);
+      // Requête sur votre table "fournisseurs"
+      const { data, error } = await sb
+        .from("fournisseurs")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+
+      // On injecte les données récupérées dans le state
+      setFournisseurs(data || []);
+    } catch (error) {
+      console.error("Erreur lors de la récupération :", error.message);
+      setToast({ msg: "❌ Impossible de charger les fournisseurs", color: "#dc2626" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 4. Sauvegarde fournisseur — uniquement les colonnes existantes en DB
+  const handleSaveFournisseur = async (form) => {
+    try {
+      // Extraire le contact principal depuis le tableau contacts[]
+      const principalContact = form.contacts?.find(c => c.principal) || form.contacts?.[0] || {};
+      // Extraire les matières depuis le tableau produits[]
+      const matieres = (form.produits || []).map(p => p.matiere).filter(Boolean);
+
+      // Payload limité aux colonnes réelles de la table fournisseurs
+      const payload = {
+      name: form.name,
+      contact: principalContact.nom || null,
+      tel: principalContact.tel || null,
+      email: principalContact.email || null,
+      matieres: matieres.length > 0 ? matieres : null,
+      delai: parseInt(form.delaiMoyen) || 7,
+      evaluation: 3, // Respecte la contrainte CHECK (entre 1 et 5)
+      mode_paiement: form.mode_paiement || null,
+      notes: form.notes || null,
+      is_active: form.statut !== "inactif", // true par défaut sauf si explicitement inactif
+
+      // Attention aux guillemets pour les colonnes CamelCase de votre schéma SQL
+      "codeFournisseur": form.codeFournisseur || codeGen,
+      statut: form.statut || "actif",
+      pays: form.pays || "Tunisie",
+      ville: form.ville || null,
+      adresse: form.adresse || null,
+      "siteWeb": form.siteWeb || null,
+      "dateCreation": form.dateCreation || new Date().toISOString().split("T")[0],
+      "acheteurResponsable": form.acheteurResponsable || null,
+      devise: form.devise || "TND",
+      "condPaiement": form.condPaiement || null,
+      "delaiPaiementNegocie": parseInt(form.delaiPaiementNegocie) || 30,
+      incoterm: form.incoterm || "DAP",
+      "modeLivraison": form.modeLivraison || null,
+      moq: form.moq || null,
+      "delaiMoyen": parseInt(form.delaiMoyen) || 7,
+      "conditionsParticulieres": form.conditionsParticulieres || null,
+      "tauxConformite": parseInt(form.tauxConformite) || 100,
+      "nbNC": parseInt(form.nbNC) || 0,
+      "nbNCMajeures": parseInt(form.nbNCMajeures) || 0,
+      "nbReclamations90j": parseInt(form.nbReclamations90j) || 0,
+      "nbCommandes": parseInt(form.nbCommandes) || 0,
+
+      // Champs JSONB (on conserve les structures attendues ou la saisie du formulaire)
+      contacts: form.contacts || [],
+      produits: form.produits || [],
+      evaluations: form.evaluations || [
+        { prix: 100, delai: 100, condPmt: 100, docQual: 100, qualite: 100, reactivite: 100 }
+      ]
+      
+      // Note : totalAchats et scoreReactivite ont été retirés car absents de la table SQL
+    };
+
+      const { data, error } = await sb
+        .from("fournisseurs")
+        .insert([payload])
+        .select()
+        .single();
+
+      if (error) {
+        console.error("Erreur Supabase:", error);
+        setToast({ msg: `❌ Erreur: ${error.message}`, color: "#dc2626" });
+        return;
+      }
+
+      // Enrichir la ligne locale avec les données UI non stockées en DB
+      const localRow = {
+        ...data,
+        codeFournisseur: form.codeFournisseur || "",
+        pays: form.pays || "Tunisie",
+        ville: form.ville || "",
+        adresse: form.adresse || "",
+        contacts: form.contacts || [],
+        produits: form.produits || [],
+        evaluations: form.evaluations || [],
+        historiqueDocs: [],
+        categorieRisque: "low",
+        tauxConformite: 100,
+        nbNC: 0,
+        nbNCMajeures: 0,
+        nbReclamations90j: 0,
+        nbCommandes: 0,
+        totalAchats: 0,
+        scoreReactivite: 80,
+        delaiMoyen: parseInt(form.delaiMoyen) || 7,
+      };
+
+      setFournisseurs(fs => [localRow, ...fs]);
+
+      if (addAudit && user) {
+        addAudit(user.nom, (user.roles || [])[0], "CREATE_FOURNISSEUR", "fournisseurs", form.name, "Nouveau fournisseur");
+      }
+
+      setToast({ msg: "✅ Fournisseur créé avec succès", color: "#059669" });
+      setShowForm(false);
+    } catch (err) {
+      console.error("Erreur lors de la création :", err);
+      setToast({ msg: "❌ Erreur inattendue lors de la création", color: "#dc2626" });
+    }
+  };
 
   const alertes      = genAlertesFournisseurs(fournisseurs);
   const alertesCrit  = alertes.filter(a=>a.sev==="critique");
@@ -238,6 +289,11 @@ export default function FournisseursPage({user, addAudit}) {
     finally { setChatLoading(false); }
   };
 
+  if (loading) {
+    return <div className="text-center p-8 text-xs text-gray-400">⏳ Chargement des fournisseurs depuis Supabase...</div>;
+  }
+
+
   const SEV={
     critique:{bg:"bg-red-50",border:"border-red-200",text:"text-red-800",badge:"bg-red-600 text-white"},
     haut:    {bg:"bg-amber-50",border:"border-amber-200",text:"text-amber-800",badge:"bg-amber-500 text-white"},
@@ -250,7 +306,7 @@ export default function FournisseursPage({user, addAudit}) {
       {toast&&<Toast message={toast.msg} color={toast.color} onDone={()=>setToast(null)}/>}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Fournisseurs</h1>
+          <h1 className="text-xl font-bold text-gray-900">Fournisseur</h1>
           <p className="text-xs text-gray-400">{fournisseurs.length} fournisseurs · {alertesCrit.length} critique(s)</p>
         </div>
         <div className="flex gap-2">
@@ -440,23 +496,12 @@ export default function FournisseursPage({user, addAudit}) {
       </Modal>
 
       <Modal open={showForm} onClose={()=>setShowForm(false)} title="Nouveau Fournisseur" maxWidth="max-w-2xl">
-        <NouveauFournisseurForm onSave={form=>{
-          const nf={...form,id:`f${Date.now()}`,codeFournisseur:`FRN-${String(fournisseurs.length+1).padStart(3,"0")}`,
-            produits:[],contacts:[],evaluations:[],historiqueDocs:[],
-            dateCreation:new Date().toISOString().split("T")[0],
-            categorieRisque:"low",tauxConformite:100,nbNC:0,nbNCMajeures:0,
-            nbReclamations90j:0,nbCommandes:0,totalAchats:0,scoreReactivite:80};
-          setFournisseurs(fs=>[nf,...fs]);
-          addAudit(user.nom,user.roles[0],"CREATE_FOURNISSEUR","fournisseurs",form.name,"Nouveau fournisseur");
-          setToast({msg:"✅ Fournisseur créé",color:"#059669"});
-          setShowForm(false);
-        }}/>
+        <NouveauFournisseurForm onSave={handleSaveFournisseur}/>
       </Modal>
     </div>
   );
 }
 
-// ─── Fiche fournisseur détaillée v2 ──────────────────────────────────
 function FicheFournisseurV2({f, allF=[], addAudit, user}) {
   const [tab, setTab] = useState("overview");
   const ia      = scoreFournisseurIA(f);
@@ -647,35 +692,178 @@ function FicheFournisseurV2({f, allF=[], addAudit, user}) {
   );
 }
 
-// ─── Formulaire nouveau fournisseur ──────────────────────────────────
-function NouveauFournisseurForm({onSave}) {
-  const [form,setForm] = useState({
-    name:"",statut:"actif",pays:"Tunisie",ville:"",adresse:"",siteWeb:"",
-    acheteurResponsable:"",devise:"TND",condPaiement:"Virement 30j",
-    delaiPaiementNegocie:30,incoterm:"DAP",modeLivraison:"",moq:"",
-    delaiMoyen:7,delaiMoisPrecedent:7,conditionsParticulieres:"",scoreReactivite:80,
+function NouveauFournisseurForm({ onSave }) {
+  const [form, setForm] = useState({
+    // Vue d'ensemble
+    name: "",
+    statut: "actif",
+    codeFournisseur: "",
+    pays: "Tunisie",
+    ville: "",
+    adresse: "",
+    siteWeb: "",
+    acheteurResponsable: "",
+    dateCreation: new Date().toISOString().split("T")[0],
+    contacts: [],
+
+    // Conditions
+    devise: "TND",
+    condPaiement: "Virement 30j",
+    delaiPaiementNegocie: 30,
+    incoterm: "DAP",
+    modeLivraison: "",
+    moq: "",
+    delaiMoyen: 7,
+    conditionsParticulieres: "",
+
+    // Performance (Champs initiaux par défaut)
+    tauxConformite: 100,
+    nbNC: 0,
+    nbNCMajeures: 0,
+    nbReclamations90j: 0,
+    nbCommandes: 0,
+    
+    // Évaluations (Dernières notes IA / Grille)
+    evaluations: [
+      { prix: 100, qualite: 100, delai: 100, reactivite: 100, condPmt: 100, docQual: 100 }
+    ],
+
+    // Produits & Prix
+    produits: []
   });
-  const up=(k,v)=>setForm(f=>({...f,[k]:v}));
+
+  const up = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  // Gestion dynamique des contacts
+  const addContact = () => {
+    up("contacts", [...form.contacts, { nom: "", fonction: "", principal: form.contacts.length === 0, tel: "", email: "" }]);
+  };
+  const upContact = (index, field, value) => {
+    const updated = [...form.contacts];
+    updated[index][field] = value;
+    up("contacts", updated);
+  };
+  const removeContact = (index) => {
+    up("contacts", form.contacts.filter((_, i) => i !== index));
+  };
+
+  // Gestion dynamique des produits
+  const addProduit = () => {
+    up("produits", [...form.produits, { 
+      matiere: "", categorie: "", prixActuel: 0, prixPrecedent: 0, prixN2: 0, 
+      refFournisseur: "", refInterne: "", certHalal: false, certHalalExpiry: "", 
+      certQualite: false, certQualiteExpiry: "" 
+    }]);
+  };
+  const upProduit = (index, field, value) => {
+    const updated = [...form.produits];
+    updated[index][field] = value;
+    up("produits", updated);
+  };
+  const removeProduit = (index) => {
+    up("produits", form.produits.filter((_, i) => i !== index));
+  };
+
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3">
-        <Input label="Nom / Raison sociale *" value={form.name} onChange={e=>up("name",e.target.value)} className="col-span-2"/>
-        <Select label="Statut" value={form.statut} onChange={e=>up("statut",e.target.value)}>
-          <option value="actif">Actif</option>
-          <option value="en_test">En test</option>
-          <option value="suspendu">Suspendu</option>
-          <option value="bloque">Bloqué</option>
-        </Select>
-        <Input label="Pays" value={form.pays} onChange={e=>up("pays",e.target.value)}/>
-        <Input label="Ville" value={form.ville} onChange={e=>up("ville",e.target.value)}/>
-        <Input label="Adresse" value={form.adresse} onChange={e=>up("adresse",e.target.value)} className="col-span-2"/>
-        <Input label="Conditions paiement" value={form.condPaiement} onChange={e=>up("condPaiement",e.target.value)}/>
-        <Input label="Délai livraison moyen (j)" type="number" value={form.delaiMoyen} onChange={e=>up("delaiMoyen",parseInt(e.target.value)||7)}/>
-        <Input label="Incoterm" value={form.incoterm} onChange={e=>up("incoterm",e.target.value)}/>
-        <Input label="MOQ" value={form.moq} onChange={e=>up("moq",e.target.value)}/>
-        <Input label="Acheteur responsable" value={form.acheteurResponsable} onChange={e=>up("acheteurResponsable",e.target.value)} className="col-span-2"/>
+    <div className="space-y-6 max-h-[80vh] overflow-y-auto px-1">
+      {/* 1. VUE D'ENSEMBLE */}
+      <div className="space-y-3">
+        <h3 className="font-bold text-sm text-blue-600 uppercase border-b pb-1">1. Informative & Vue d'ensemble</h3>
+        <div className="grid grid-cols-2 gap-3">
+          <Input label="Nom / Raison sociale *" value={form.name} onChange={e => up("name", e.target.value)} className="col-span-2"/>
+          <Input label="Code Fournisseur" value={form.codeFournisseur} onChange={e => up("codeFournisseur", e.target.value)}/>
+          <Select label="Statut" value={form.statut} onChange={e => up("statut", e.target.value)}>
+            <option value="actif">Actif</option>
+            <option value="en_test">En test</option>
+            <option value="suspendu">Suspendu</option>
+            <option value="bloque">Bloqué</option>
+          </Select>
+          <Input label="Pays" value={form.pays} onChange={e => up("pays", e.target.value)}/>
+          <Input label="Ville" value={form.ville} onChange={e => up("ville", e.target.value)}/>
+          <Input label="Adresse" value={form.adresse} onChange={e => up("adresse", e.target.value)} className="col-span-2"/>
+          <Input label="Site Web" value={form.siteWeb} onChange={e => up("siteWeb", e.target.value)}/>
+          <Input label="Acheteur responsable" value={form.acheteurResponsable} onChange={e => up("acheteurResponsable", e.target.value)}/>
+        </div>
       </div>
-      <Btn variant="success" onClick={()=>onSave(form)} disabled={!form.name} className="w-full">✓ Créer le fournisseur</Btn>
+
+      {/* CONTACTS */}
+      <div className="space-y-3 bg-gray-50 p-3 rounded-xl">
+        <div className="flex justify-between items-center">
+          <span className="text-xs font-bold text-gray-500 uppercase">Contacts ({form.contacts.length})</span>
+          <Btn variant="secondary" size="xs" onClick={addContact}>+ Ajouter un contact</Btn>
+        </div>
+        {form.contacts.map((c, i) => (
+          <div key={i} className="p-3 bg-white border rounded-xl space-y-2 relative">
+            <button className="absolute top-2 right-2 text-red-500 font-bold" onClick={() => removeContact(i)}>✕</button>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <Input label="Nom" value={c.nom} onChange={e => upContact(i, "nom", e.target.value)}/>
+              <Input label="Fonction" value={c.fonction} onChange={e => upContact(i, "fonction", e.target.value)}/>
+              <Input label="Téléphone" value={c.tel} onChange={e => upContact(i, "tel", e.target.value)}/>
+              <Input label="Email" value={c.email} onChange={e => upContact(i, "email", e.target.value)}/>
+              <div className="flex items-center gap-2 mt-4">
+                <input type="checkbox" id={`p-${i}`} checked={c.principal} onChange={e => upContact(i, "principal", e.target.checked)}/>
+                <label htmlFor={`p-${i}`} className="font-semibold text-gray-600">Contact Principal</label>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* 2. CONDITIONS */}
+      <div className="space-y-3">
+        <h3 className="font-bold text-sm text-blue-600 uppercase border-b pb-1">2. Conditions Commerciales</h3>
+        <div className="grid grid-cols-2 gap-3">
+          <Input label="Devise" value={form.devise} onChange={e => up("devise", e.target.value)}/>
+          <Input label="Incoterm" value={form.incoterm} onChange={e => up("incoterm", e.target.value)}/>
+          <Input label="Conditions paiement" value={form.condPaiement} onChange={e => up("condPaiement", e.target.value)}/>
+          <Input label="Délai paiement (jours)" type="number" value={form.delaiPaiementNegocie} onChange={e => up("delaiPaiementNegocie", parseInt(e.target.value) || 0)}/>
+          <Input label="Mode livraison" value={form.modeLivraison} onChange={e => up("modeLivraison", e.target.value)}/>
+          <Input label="MOQ" value={form.moq} onChange={e => up("moq", e.target.value)}/>
+          <Input label="Délai livraison moyen (j)" type="number" value={form.delaiMoyen} onChange={e => up("delaiMoyen", parseInt(e.target.value) || 0)}/>
+          <Input label="Conditions particulières" value={form.conditionsParticulieres} onChange={e => up("conditionsParticulieres", e.target.value)} className="col-span-2"/>
+        </div>
+      </div>
+
+      {/* 3. PRODUITS & PRIX */}
+      <div className="space-y-3 bg-blue-50/50 p-3 rounded-xl">
+        <div className="flex justify-between items-center">
+          <span className="text-xs font-bold text-blue-700 uppercase">Produits & Tarifications ({form.produits.length})</span>
+          <Btn variant="primary" size="xs" onClick={addProduit}>+ Ajouter un produit</Btn>
+        </div>
+        {form.produits.map((p, i) => (
+          <div key={i} className="p-3 bg-white border border-blue-100 rounded-xl space-y-2 relative">
+            <button className="absolute top-2 right-2 text-red-500 font-bold" onClick={() => removeProduit(i)}>✕</button>
+            <div className="grid grid-cols-3 gap-2 text-xs">
+              <Input label="Nom matière *" value={p.matiere} onChange={e => upProduit(i, "matiere", e.target.value)} className="col-span-2"/>
+              <Input label="Catégorie" value={p.categorie} onChange={e => upProduit(i, "categorie", e.target.value)}/>
+              <Input label="Prix Actuel (TND)" type="number" step="0.001" value={p.prixActuel} onChange={e => upProduit(i, "prixActuel", parseFloat(e.target.value) || 0)}/>
+              <Input label="Prix Précédent (TND)" type="number" step="0.001" value={p.prixPrecedent} onChange={e => upProduit(i, "prixPrecedent", parseFloat(e.target.value) || 0)}/>
+              <Input label="Prix N-2 (TND)" type="number" step="0.001" value={p.prixN2} onChange={e => upProduit(i, "prixN2", parseFloat(e.target.value) || 0)}/>
+              <Input label="Réf Fournisseur" value={p.refFournisseur} onChange={e => upProduit(i, "refFournisseur", e.target.value)}/>
+              <Input label="Réf Interne" value={p.refInterne} onChange={e => upProduit(i, "refInterne", e.target.value)}/>
+            </div>
+            {/* Certificats */}
+            <div className="grid grid-cols-2 gap-4 pt-2 border-t text-xs">
+              <div className="space-y-1">
+                <label className="flex items-center gap-1 font-bold text-gray-600">
+                  <input type="checkbox" checked={p.certHalal} onChange={e => upProduit(i, "certHalal", e.target.checked)}/> 🕌 Certificat Halal
+                </label>
+                {p.certHalal && <Input type="date" label="Expiration Halal" value={p.certHalalExpiry} onChange={e => upProduit(i, "certHalalExpiry", e.target.value)}/>}
+              </div>
+              <div className="space-y-1">
+                <label className="flex items-center gap-1 font-bold text-gray-600">
+                  <input type="checkbox" checked={p.certQualite} onChange={e => upProduit(i, "certQualite", e.target.checked)}/> ✅ Certificat Qualité
+                </label>
+                {p.certQualite && <Input type="date" label="Expiration Qualité" value={p.certQualiteExpiry} onChange={e => upProduit(i, "certQualiteExpiry", e.target.value)}/>}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <Btn variant="success" onClick={() => onSave(form)} disabled={!form.name} className="w-full sticky bottom-0 shadow-md">
+        ✓ Créer et Synchroniser sur Supabase
+      </Btn>
     </div>
   );
 }

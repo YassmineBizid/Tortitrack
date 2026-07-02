@@ -1,13 +1,14 @@
-import { useState } from "react";
+import { useState , useEffect, useMemo} from "react";
 import { Card, Btn, Modal, Input, Select, Toast } from "../components/ui.jsx";
-import { initEmployes, initPresences, TODAY } from "../data/demoData.js";
+import { initPresences, TODAY } from "../data/demoData.js";
+import { sb } from "../supabaseClient.js";
 
 const DEPARTEMENTS = ["Commerce","Production","Qualité","Finance","RH","Logistique","Direction","Support"];
 const POSTES = ["Commercial","Chauffeur-livreur","Opérateur Production","Responsable QC","Comptable","RH","Directeur Commercial","Chef d'Usine","DG","Magasinier","Assistant Admin"];
 const TYPES_CONTRAT = ["CDI","CDD","SIVP","Journalier","Stage"];
 
 const STATUS_EMP = {
-  actif:       { l:"✅ Actif",     c:"#059669" },
+  actif:      { l:"✅ Actif",    c:"#059669" },
   suspendu:    { l:"⛔ Suspendu",  c:"#dc2626" },
   en_conge_ld: { l:"🏖 Congé",    c:"#d97706" },
   sorti:       { l:"✗ Sorti",     c:"#6b7280" },
@@ -46,15 +47,23 @@ function initPaie(employes) {
 }
 
 export default function RHView({ user, addAudit }) {
-  const [employes,   setEmployes]   = useState(initEmployes);
-  const [presences,  setPresences]  = useState(initPresences);
+
+  const [employes,   setEmployes]   = useState([]); 
+  const [loading,    setLoading]    = useState(true);
+
+  const [presences,  setPresences]  = useState([]);
+  const [loadingP,   setLoadingP]   = useState(false);
+
+  
   const [tab,        setTab]        = useState("employes");
   const [toast,      setToast]      = useState(null);
   // Employes tab state
   const [search,     setSearch]     = useState("");
   const [filterDep,  setFilterDep]  = useState("");
   const [showFiche,  setShowFiche]  = useState(null);
-  const [showNewEmp, setShowNewEmp] = useState(false);
+  const [showFormModal, setShowFormModal] = useState(false);
+  const [editingEmp, setEditingEmp] = useState(null); // stocke l'employé à modifier
+
   // Presence tab
   const [dateP,      setDateP]      = useState(TODAY);
   // Paie tab
@@ -71,13 +80,6 @@ export default function RHView({ user, addAudit }) {
     if (filterDep && e.departement !== filterDep) return false;
     return true;
   });
-
-  const addEmp = (f) => {
-    setEmployes(es => [{ ...f, id:`EMP${Date.now()}`, statut:"actif" }, ...es]);
-    addAudit(user.nom, roles[0], "CREATE_EMPLOYE", "rh_employes", f.matricule||f.nom, `${f.prenom} ${f.nom} · ${f.poste}`);
-    setToast({ msg:"✅ Employé créé", color:"#059669" });
-    setShowNewEmp(false);
-  };
 
   const dayPresences = presences.filter(p => p.date === dateP);
   const nbPresents   = dayPresences.filter(p => ["present","retard"].includes(p.statut)).length;
@@ -105,6 +107,220 @@ export default function RHView({ user, addAudit }) {
 <p style="text-align:center;font-size:9px;color:#94a3b8;margin-top:15px">TORTITRACK ERP — ${new Date().toLocaleString("fr-FR")}</p>
 </body></html>`;
     const w=window.open("","_blank");if(w){w.document.write(html);w.document.close();setTimeout(()=>w.print(),400);}
+  };
+
+  useEffect(() => {
+    const fetchEmployes = async () => {
+      const { data, error } = await sb
+        .from('employes')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error("Erreur Fetch Employés:", error);
+        setToast({ msg: "❌ Erreur de chargement des employés", color: "#dc2626" });
+      } else if (data) {
+        const mappedEmployes = data.map(dbEmp => ({
+          id: dbEmp.id,
+          nom: dbEmp.nom,
+          prenom: dbEmp.prenom,
+          poste: dbEmp.poste,
+          dateEntree: dbEmp.date_embauche, 
+          salaireBase: dbEmp.salaire,      
+          statut: dbEmp.status,            
+          cin: dbEmp.cin || "",
+          matricule: dbEmp.matricule || "N/A", 
+          departement: dbEmp.departement || "Non défini",
+          typeContrat: dbEmp.type_contrat || "N/A",
+          email: dbEmp.email || "",
+          telephone: dbEmp.telephone || "",
+          primeFix: dbEmp.prime_fix || 0
+        }));
+        
+        setEmployes(mappedEmployes);
+      }
+      setLoading(false);
+    };
+
+    fetchEmployes();
+  }, []);
+
+  useEffect(() => {
+  const fetchPresences = async () => {
+    setLoadingP(true);
+    const { data, error } = await sb
+      .from('presences')
+      .select(`
+        id,
+        employe_id,
+        date,
+        heure_arrivee,
+        heure_depart,
+        statut
+      `); // On ne demande que les colonnes qui existent vraiment
+
+    if (error) {
+      console.error("Erreur Fetch Présences:", error);
+      setToast({ msg: "❌ Erreur de chargement des présences", color: "#dc2626" });
+    } else if (data) {
+      const HEURE_DEBUT_STD = 8 * 60;     // 08:00 en minutes
+      const DUREE_JOURNEE_STD = 8;        // 8h de travail standard
+
+      const toMinutes = (timeStr) => {
+        if (!timeStr) return null;
+        const parts = timeStr.split(':').map(Number);
+        return parts[0] * 60 + parts[1];
+      };
+
+      const mappedPresences = data.map(p => {
+        const mArrivee = toMinutes(p.heure_arrivee);
+        const mDepart  = toMinutes(p.heure_depart);
+
+        const heuresTravaillees = (mArrivee !== null && mDepart !== null && mDepart > mArrivee)
+          ? (mDepart - mArrivee) / 60
+          : 0;
+
+        const hs = heuresTravaillees > DUREE_JOURNEE_STD
+          ? Math.round((heuresTravaillees - DUREE_JOURNEE_STD) * 100) / 100
+          : 0;
+
+        const retardMin = (mArrivee !== null && mArrivee > HEURE_DEBUT_STD)
+          ? mArrivee - HEURE_DEBUT_STD
+          : 0;
+
+        return {
+          id: p.id,
+          employeId: p.employe_id,
+          date: p.date,
+          statut: p.statut,
+          heureArrivee: p.heure_arrivee,
+          heureDepart: p.heure_depart,
+          heuresTravaillees,
+          hs,
+          retardMin,
+        };
+      });
+
+      setPresences(mappedPresences);
+    }
+    setLoadingP(false);
+  };
+
+  fetchPresences();
+}, [dateP]);
+
+  // 1️⃣ ÉCRITURE : Ajouter un employé dans Supabase
+  const addEmp = async (f) => {
+    const payload = {
+      nom: f.nom,
+      prenom: f.prenom,
+      poste: f.poste,
+      date_embauche: f.dateEntree,
+      salaire: f.salaireBase,
+      status: f.statut || "actif",
+      matricule: f.matricule,
+      departement: f.departement,
+      type_contrat: f.typeContrat,
+      email: f.email,
+      telephone: f.telephone,
+      prime_fix: f.primeFix,
+      cin: f.cin
+    };
+
+    const { data, error } = await sb
+      .from('employes')
+      .insert([payload])
+      .select();
+
+    if (error) {
+      console.error("Erreur Insert Employé:", error);
+      setToast({ msg: `❌ Erreur: ${error.message}`, color: "#dc2626" });
+      return;
+    }
+
+    if (data && data.length > 0) {
+      const newDbEmp = data[0];
+      const newUIEmp = { 
+        ...f, 
+        id: newDbEmp.id, 
+        statut: newDbEmp.status,
+        dateEntree: newDbEmp.date_embauche,
+        salaireBase: newDbEmp.salaire
+      };
+
+      setEmployes(es => [newUIEmp, ...es]);
+      addAudit(user?.nom, roles[0], "CREATE_EMPLOYE", "rh_employes", f.matricule||f.nom, `${f.prenom} ${f.nom} · ${f.poste}`);
+      setToast({ msg:"✅ Employé créé", color:"#059669" });
+      setShowFormModal(false);
+    }
+  };
+
+  // 2️⃣ MODIFICATION : Mettre à jour un employé existant
+  const updateEmp = async (f) => {
+    const payload = {
+      nom: f.nom,
+      prenom: f.prenom,
+      poste: f.poste,
+      date_embauche: f.dateEntree,
+      salaire: f.salaireBase,
+      status: f.statut, // Le statut devient modifiable à l'édition
+      matricule: f.matricule,
+      departement: f.departement,
+      type_contrat: f.typeContrat,
+      email: f.email,
+      telephone: f.telephone,
+      prime_fix: f.primeFix,
+      cin: f.cin
+    };
+
+    const { error } = await sb
+      .from('employes')
+      .update(payload)
+      .eq('id', f.id);
+
+    if (error) {
+      console.error("Erreur Update Employé:", error);
+      setToast({ msg: `❌ Erreur de modification: ${error.message}`, color: "#dc2626" });
+      return;
+    }
+
+    // Mise à jour de l'état local côté UI
+    setEmployes(es => es.map(emp => emp.id === f.id ? f : emp));
+    addAudit(user?.nom, roles[0], "UPDATE_EMPLOYE", "rh_employes", f.matricule||f.nom, `Modif: ${f.prenom} ${f.nom}`);
+    setToast({ msg:"✅ Employé mis à jour", color:"#059669" });
+    setShowFormModal(false);
+    setEditingEmp(null);
+  };
+
+  // 3️⃣ SUPPRESSION : Supprimer un employé
+  const deleteEmp = async (id, name, matricule) => {
+    if (!window.confirm(`Êtes-vous sûr de vouloir supprimer définitivement l'employé ${name} ?`)) return;
+
+    const { error } = await sb
+      .from('employes')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error("Erreur Delete Employé:", error);
+      setToast({ msg: `❌ Impossible de supprimer: ${error.message}`, color: "#dc2626" });
+      return;
+    }
+
+    setEmployes(es => es.filter(emp => emp.id !== id));
+    addAudit(user?.nom, roles[0], "DELETE_EMPLOYE", "rh_employes", matricule||name, `Supprimé: ${name}`);
+    setToast({ msg:"🗑️ Employé supprimé", color:"#dc2626" });
+    setShowFiche(null); // ferme la fiche si elle était ouverte
+  };
+
+  const handleOpenCreate = () => {
+    setEditingEmp(null);
+    setShowFormModal(true);
+  };
+
+  const handleOpenEdit = (emp) => {
+    setEditingEmp(emp);
+    setShowFormModal(true);
   };
 
   return (
@@ -136,7 +352,7 @@ export default function RHView({ user, addAudit }) {
           <div className="flex gap-3 flex-wrap items-end">
             <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Matricule, nom, prénom..." className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm min-h-[44px] min-w-[160px] focus:outline-none"/>
             <select value={filterDep} onChange={e=>setFilterDep(e.target.value)} className="border border-gray-200 rounded-xl px-3 py-2 text-sm min-h-[44px]"><option value="">Tous dépt.</option>{DEPARTEMENTS.map(d=><option key={d}>{d}</option>)}</select>
-            {isRH && <Btn variant="primary" onClick={() => setShowNewEmp(true)}>+ Nouvel employé</Btn>}
+            {isRH && <Btn variant="primary" onClick={handleOpenCreate}>+ Nouvel employé</Btn>}
           </div>
           <Card>
             <div className="overflow-x-auto">
@@ -155,7 +371,15 @@ export default function RHView({ user, addAudit }) {
                       <td className="px-3 py-3 text-center">{anc}a</td>
                       <td className="px-3 py-3 font-bold">{(e.salaireBase||0).toLocaleString()} DT</td>
                       <td className="px-3 py-3"><span className="px-2 py-0.5 rounded-full text-xs font-bold border" style={{ color:sc.c, background:sc.c+"15", borderColor:sc.c+"30" }}>{sc.l}</span></td>
-                      <td className="px-3 py-3"><Btn variant="secondary" size="xs" onClick={() => setShowFiche(e)}>Fiche</Btn></td>
+                      <td className="px-3 py-3 flex gap-1">
+                        <Btn variant="secondary" size="xs" onClick={() => setShowFiche(e)}>Fiche</Btn>
+                        {isRH && (
+                          <>
+                            <button onClick={() => handleOpenEdit(e)} className="p-1 hover:bg-gray-100 rounded text-amber-600 font-bold" title="Modifier">✏️</button>
+                            <button onClick={() => deleteEmp(e.id, `${e.prenom} ${e.nom}`, e.matricule)} className="p-1 hover:bg-gray-100 rounded text-red-600" title="Supprimer">🗑️</button>
+                          </>
+                        )}
+                      </td>
                     </tr>
                   );
                 })}</tbody>
@@ -164,44 +388,60 @@ export default function RHView({ user, addAudit }) {
           </Card>
         </div>
       )}
+{/* ── PRÉSENCE ── */}
+{tab === "presence" && (
+  <div className="space-y-3">
+    <div className="flex gap-4 items-center flex-wrap">
+      <input type="date" value={dateP} onChange={e => setDateP(e.target.value)} className="border border-gray-200 rounded-xl px-3 py-2.5 text-sm min-h-[44px]"/>
+      {loadingP ? <span className="text-xs text-gray-400 animate-pulse">Chargement de la base...</span> : (
+        <>
+          {[["Présents",nbPresents,"#059669"],[`Taux ${taux}%`,taux+"%","#3b82f6"],["Retards",presences.filter(p=>p.retardMin>0 || p.statut === "retard").length,"#d97706"]].map(([l,v,c])=>(
+            <div key={l} className="text-center px-3 py-2 bg-white rounded-xl border border-gray-100 shadow-sm">
+              <div className="text-xs text-gray-400">{l}</div>
+              <div className="font-black text-sm" style={{ color:c }}>{v}</div>
+            </div>
+          ))}
+        </>
+      )}
+    </div>
+    <Card>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs" style={{ minWidth:650 }}>
+          <thead><tr className="border-b bg-gray-50">{["Employé","Département","Entrée","Sortie","H. Trav.","Retard","H. Sup.","Statut"].map(h=><th key={h} className="px-3 py-2.5 text-left font-bold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>)}</tr></thead>
+          <tbody>{employes.filter(e=>e.statut==="actif").map((e,i) => {
+            
+            
+            const p = dayPresences.find(x => x.employeId === e.id) || { statut: "absent", heureArrivee: "", heureDepart: "" };
+            const sc = STATUTS_P[p.statut] || STATUTS_P.absent;
 
-      {/* ── PRÉSENCE ── */}
-      {tab === "presence" && (
-        <div className="space-y-3">
-          <div className="flex gap-4 items-center flex-wrap">
-            <input type="date" value={dateP} onChange={e => setDateP(e.target.value)} className="border border-gray-200 rounded-xl px-3 py-2.5 text-sm min-h-[44px]"/>
-            {[["Présents",nbPresents,"#059669"],[`Taux ${taux}%`,taux+"%","#3b82f6"],["Retards",dayPresences.filter(p=>p.retardMin>0).length,"#d97706"]].map(([l,v,c])=>(
-              <div key={l} className="text-center px-3 py-2 bg-white rounded-xl border border-gray-100 shadow-sm">
-                <div className="text-xs text-gray-400">{l}</div>
-                <div className="font-black text-sm" style={{ color:c }}>{v}</div>
-              </div>
-            ))}
-          </div>
-          <Card>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs" style={{ minWidth:650 }}>
-                <thead><tr className="border-b bg-gray-50">{["Employé","Département","Entrée","Sortie","H. Trav.","Retard","H. Sup.","Statut"].map(h=><th key={h} className="px-3 py-2.5 text-left font-bold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>)}</tr></thead>
-                <tbody>{employes.filter(e=>e.statut==="actif").map((e,i) => {
-                  const p = dayPresences.find(x => x.employeId === e.id) || { statut:"absent", heureEntree:"", heureSortie:"", heuresTravaillees:0, retardMin:0, hs:0 };
-                  const sc = STATUTS_P[p.statut]||STATUTS_P.absent;
-                  return (
-                    <tr key={e.id} className={`border-b hover:bg-gray-50/80 ${i%2?"bg-gray-50/30":""}`}>
-                      <td className="px-3 py-3"><div className="font-bold">{e.prenom} {e.nom}</div><div className="text-gray-400 font-mono text-xs">{e.matricule}</div></td>
-                      <td className="px-3 py-3 text-gray-500">{e.departement}</td>
-                      <td className="px-3 py-3 font-mono">{p.heureEntree||"—"}</td>
-                      <td className="px-3 py-3 font-mono">{p.heureSortie||"—"}</td>
-                      <td className="px-3 py-3 text-center font-bold">{(p.heuresTravaillees||0).toFixed(1)}</td>
-                      <td className="px-3 py-3 text-center" style={{ color:p.retardMin>0?"#dc2626":"#94a3b8" }}>{p.retardMin>0?`${p.retardMin}min`:"—"}</td>
-                      <td className="px-3 py-3 text-center" style={{ color:(p.hs||0)>0?"#7c3aed":"#94a3b8" }}>{(p.hs||0)>0?`${p.hs}h`:"—"}</td>
-                      <td className="px-3 py-3"><span className="px-2 py-0.5 rounded-full text-xs font-bold border" style={{ color:sc.c, background:sc.c+"15", borderColor:sc.c+"30" }}>{sc.l}</span></td>
-                    </tr>
-                  );
-                })}</tbody>
-              </table>
-            </div>
-          </Card>
-        </div>
-      )}
+            // Calcul direct depuis les chaînes de temps (format "8", "08", "8:30", "08:30", "08:30:00")
+            const toMin = (t) => { if (!t) return null; const s = String(t).trim(); if (!s.includes(':')) { const h = Number(s); return isNaN(h) ? null : h * 60; } const [h, m] = s.split(':').map(Number); return isNaN(h) || isNaN(m) ? null : h * 60 + m; };
+            const mA = toMin(p.heureArrivee);
+            const mD = toMin(p.heureDepart);
+            const heuresTrav = (mA !== null && mD !== null && mD > mA) ? (mD - mA) / 60 : 0;
+            const hSup       = heuresTrav > 8 ? Math.round((heuresTrav - 9.5) * 100) / 100 : 0;
+            const retardMin  = (mA !== null && mA > 8 * 60) ? mA - 8 * 60 : 0;
+
+            return (
+              <tr key={e.id} className={`border-b hover:bg-gray-50/80 ${i%2?"bg-gray-50/30":""}`}>
+                <td className="px-3 py-3"><div className="font-bold">{e.prenom} {e.nom}</div><div className="text-gray-400 font-mono text-xs">{e.matricule}</div></td>
+                <td className="px-3 py-3 text-gray-500">{e.departement}</td>
+                <td className="px-3 py-3 font-mono">{p.heureArrivee ? `${p.heureArrivee.slice(0,5)}h` : "—"}</td>
+                <td className="px-3 py-3 font-mono">{p.heureDepart  ? `${p.heureDepart.slice(0,5)}h`  : "—"}</td>
+                <td className="px-3 py-3 text-center font-bold">{heuresTrav > 0 ? `${heuresTrav.toFixed(1)}h` : "—"}</td>
+                <td className="px-3 py-3 text-center" style={{ color: retardMin > 0 ? "#dc2626" : "#94a3b8" }}>
+                  {retardMin > 0 ? `${retardMin}min` : "—"}
+                </td>
+                <td className="px-3 py-3 text-center" style={{ color: hSup > 0 ? "#7c3aed" : "#94a3b8" }}>{hSup > 0 ? `${hSup}h` : "—"}</td>
+                <td className="px-3 py-3"><span className="px-2 py-0.5 rounded-full text-xs font-bold border" style={{ color:sc.c, background:sc.c+"15", borderColor:sc.c+"30" }}>{sc.l}</span></td>
+              </tr>
+            );
+          })}</tbody>
+        </table>
+      </div>
+    </Card>
+  </div>
+)}
 
       {/* ── PAIE ── */}
       {tab === "paie" && (
@@ -250,25 +490,62 @@ export default function RHView({ user, addAudit }) {
       {/* Modal fiche employé */}
       <Modal open={!!showFiche} onClose={() => setShowFiche(null)} title={`Fiche — ${showFiche?.prenom} ${showFiche?.nom}`} maxWidth="max-w-lg">
         {showFiche && (
-          <div className="grid grid-cols-2 gap-4 text-xs">
-            {[["Matricule",showFiche.matricule],["CIN",showFiche.cin||"—"],["Département",showFiche.departement],["Poste",showFiche.poste],["Type contrat",showFiche.typeContrat],["Date entrée",showFiche.dateEntree||"—"],["Téléphone",showFiche.telephone||"—"],["Email",showFiche.email||"—"],["Salaire base",`${(showFiche.salaireBase||0).toLocaleString()} DT`],["Prime fixe",`${showFiche.primeFix||0} DT`]].map(([l,v])=>(
-              <div key={l}><div className="font-bold text-gray-400 uppercase text-xs">{l}</div><div className="font-semibold mt-0.5">{v}</div></div>
-            ))}
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4 text-xs">
+              {[["Matricule",showFiche.matricule],["CIN",showFiche.cin||"—"],["Département",showFiche.departement],["Poste",showFiche.poste],["Type contrat",showFiche.typeContrat],["Date entrée",showFiche.dateEntree||"—"],["Téléphone",showFiche.telephone||"—"],["Email",showFiche.email||"—"],["Salaire base",`${(showFiche.salaireBase||0).toLocaleString()} DT`],["Prime fixe",`${showFiche.primeFix||0} DT`],["Statut", STATUS_EMP[showFiche.statut]?.l || showFiche.statut]].map(([l,v])=>(
+                <div key={l}><div className="font-bold text-gray-400 uppercase text-xs">{l}</div><div className="font-semibold mt-0.5">{v}</div></div>
+              ))}
+            </div>
+            {isRH && (
+              <div className="border-t pt-3 flex justify-end gap-2">
+                <Btn variant="secondary" onClick={() => { setShowFiche(null); handleOpenEdit(showFiche); }}>✏️ Modifier l'employé</Btn>
+                <button onClick={() => deleteEmp(showFiche.id, `${showFiche.prenom} ${showFiche.nom}`, showFiche.matricule)} className="px-3 py-2 bg-red-50 text-red-600 rounded-xl text-xs font-bold hover:bg-red-100">🗑️ Supprimer</button>
+              </div>
+            )}
           </div>
         )}
       </Modal>
 
-      {/* Modal nouvel employé */}
-      <Modal open={showNewEmp} onClose={() => setShowNewEmp(false)} title="Nouvel Employé" maxWidth="max-w-2xl">
-        {showNewEmp && <NewEmpForm onSave={addEmp}/>}
+      {/* Modal unique pour Formulaire (Création ET Édition) */}
+      <Modal open={showFormModal} onClose={() => { setShowFormModal(false); setEditingEmp(null); }} title={editingEmp ? "Modifier l'Employé" : "Nouvel Employé"} maxWidth="max-w-2xl">
+        {showFormModal && <EmpForm onSave={editingEmp ? updateEmp : addEmp} instanceData={editingEmp} />}
       </Modal>
     </div>
   );
 }
 
-function NewEmpForm({ onSave }) {
-  const [f, setF] = useState({ matricule:"", nom:"", prenom:"", cin:"", telephone:"", email:"", poste:POSTES[0], departement:DEPARTEMENTS[0], typeContrat:"CDI", dateEntree:TODAY, salaireBase:"", primeFix:"0" });
+// Composant de Formulaire Polymorphe (Création & Édition)
+function EmpForm({ onSave, instanceData }) {
+  const [f, setF] = useState({ 
+    matricule: "", nom: "", prenom: "", cin: "", telephone: "", email: "", 
+    poste: POSTES[0], departement: DEPARTEMENTS[0], typeContrat: "CDI", 
+    dateEntree: TODAY, salaireBase: "", primeFix: "0", statut: "actif" 
+  });
+
+  // Injecter les données si on est en mode édition
+  useEffect(() => {
+    if (instanceData) {
+      setF({
+        id: instanceData.id, // nécessaire pour le .eq('id') de l'update
+        matricule: instanceData.matricule,
+        nom: instanceData.nom,
+        prenom: instanceData.prenom,
+        cin: instanceData.cin,
+        telephone: instanceData.telephone,
+        email: instanceData.email,
+        poste: instanceData.poste,
+        departement: instanceData.departement,
+        typeContrat: instanceData.typeContrat,
+        dateEntree: instanceData.dateEntree,
+        salaireBase: instanceData.salaireBase,
+        primeFix: instanceData.primeFix,
+        statut: instanceData.statut
+      });
+    }
+  }, [instanceData]);
+
   const up = (k,v) => setF(x => ({...x,[k]:v}));
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
@@ -284,8 +561,26 @@ function NewEmpForm({ onSave }) {
         <Input label="Date entrée" type="date" value={f.dateEntree} onChange={e=>up("dateEntree",e.target.value)}/>
         <Input label="Salaire de base (DT)" type="number" value={f.salaireBase} onChange={e=>up("salaireBase",e.target.value)}/>
         <Input label="Prime fixe (DT)" type="number" value={f.primeFix} onChange={e=>up("primeFix",e.target.value)}/>
+        
+        {/* Afficher le sélecteur de statut UNIQUEMENT lors d'une modification */}
+        {instanceData && (
+          <Select label="Statut de l'employé" value={f.statut} onChange={e=>up("statut",e.target.value)}>
+            {Object.keys(STATUS_EMP).map(key => <option key={key} value={key}>{STATUS_EMP[key].l}</option>)}
+          </Select>
+        )}
       </div>
-      <Btn variant="success" className="w-full" disabled={!f.matricule||!f.nom||!f.prenom||!f.salaireBase} onClick={() => onSave({...f,salaireBase:parseFloat(f.salaireBase),primeFix:parseFloat(f.primeFix)||0})}>✓ Créer l'employé</Btn>
+      <Btn 
+        variant="success" 
+        className="w-full" 
+        disabled={!f.matricule||!f.nom||!f.prenom||f.salaireBase === ""} 
+        onClick={() => onSave({
+          ...f,
+          salaireBase: parseFloat(f.salaireBase),
+          primeFix: parseFloat(f.primeFix)||0
+        })}
+      >
+        {instanceData ? "✓ Enregistrer les modifications" : "✓ Créer l'employé"}
+      </Btn>
     </div>
   );
 }
