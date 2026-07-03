@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, Btn, Modal, Input, Select, Textarea, Toast, ExportFullMenu } from "../components/ui.jsx";
 import { FOURNISSEURS_DATA, initCMP, fmt, TODAY } from "../data/demoData.js";
 import { sb } from "../supabaseClient.js";
@@ -29,15 +29,20 @@ const MATIERES = ["Farine de blé T55","Farine de blé T65","Huile végétale","
 const UNITES   = ["kg","L","rl","boîte","pièce","tonne","sac"];
 const MODES    = ["Virement 30j","Virement 45j","Chèque","Espèces","Traite","Autre"];
 
+
 const bloqueDepuis = (c) => {
-  if (["livree","annulee","en_attente_livraison"].includes(c.status)) return null;
-  if (!c.updatedAt) return null;
-  const days = Math.ceil((new Date() - new Date(c.updatedAt)) / 86400000);
+  if (["livree", "annulee", "en_attente_livraison"].includes(c.status)) return null;
+  
+  // Alignement strict sur les formats de date (Supabase en priorité, fallback local)
+  const targetDate = c.updated_at || c.updatedAt || c.created_at;
+  if (!targetDate) return null;
+  
+  // Math.floor évite les faux positifs des arrondis supérieurs
+  const days = Math.floor((new Date() - new Date(targetDate)) / 86400000);
   return days > 3 ? days : null;
 };
 
 export default function AchatsView({ user, cmp, setCmp, addAudit, fournisseurs, onSaved }) {
-  // Use Supabase fournisseurs if available, fallback to demo data
   const foursList = (fournisseurs && fournisseurs.length > 0) ? fournisseurs : FOURNISSEURS_DATA;
   const isUUID = s => s && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
   const [selected,    setSelected]    = useState(null);
@@ -67,7 +72,7 @@ export default function AchatsView({ user, cmp, setCmp, addAudit, fournisseurs, 
     if (!newEtape) { alert("Sélectionner la nouvelle étape."); return; }
     const target = cmp.find(c => c.id === id);
     const now = new Date().toISOString();
-    setCmp(cs => cs.map(c => c.id === id ? { ...c, status: newEtape, updatedAt: now, acheteur: c.acheteur || user.nom } : c));
+    setCmp(cs => cs.map(c => c.id === id ? { ...c, status: newEtape, updated_at: now, updatedAt: now, acheteur: c.acheteur || user.nom } : c));
     addAudit(user.nom, roles[0], "UPDATE_ETAPE", "commandes_mp", target?.number, `Étape: ${ETAPE_STATUS[newEtape]?.l}${noteEtape ? ` — ${noteEtape}` : ""}`);
     setToast({ msg: `✅ Étape: ${ETAPE_STATUS[newEtape]?.l}`, color: "#059669" });
     setNewEtape(""); setNoteEtape(""); setSelected(null);
@@ -85,34 +90,104 @@ export default function AchatsView({ user, cmp, setCmp, addAudit, fournisseurs, 
   const createCMP = async (form) => {
     const num = `CMP-${new Date().getFullYear()}-${String(Math.floor(Math.random()*9000)+1000).padStart(4,"0")}`;
     const fn  = foursList.find(x => x.id === form.fournisseurId);
-    const nc  = { id:`cmp${Date.now()}`, number:num, matiere:form.matiere, fournisseurId:form.fournisseurId, fournisseur:fn?.name||"", qty:parseInt(form.qty), unite:form.unite, prixU:0, total:0, dateLivraisonConvenue:form.dateSouhaitee||null, dateLivraisonSouhaitee:form.dateSouhaitee||null, modePaiement:form.modePaiement, status:"validated_chef_prod", acheteur:null, updatedAt:new Date().toISOString() };
+    const acheteurInitial = isAcheteur ? user.nom : null;
+    
+    const nc  = { 
+      id: `cmp${Date.now()}`, 
+      number: num, 
+      matiere: form.matiere, 
+      fournisseur_id: form.fournisseurId, 
+      fournisseur: fn?.name || "", 
+      fournisseurs: { name: fn?.name || "" },
+      qty: parseInt(form.qty) || 1, 
+      unite: form.unite, 
+      prixU: 0, 
+      total: 0, 
+      dateLivraisonConvenue: form.dateSouhaitee || null, 
+      dateLivraisonSouhaitee: form.dateSouhaitee || null, 
+      modePaiement: form.modePaiement, 
+      status: "validated_chef_prod", 
+      acheteur: acheteurInitial, 
+      updatedAt: new Date().toISOString() 
+    };
     setCmp(cs => [nc, ...cs]);
+    
     addAudit(user.nom, roles[0], "CREATE", "commandes_mp", num, `CMP créée — ${fn?.name}`);
     setToast({ msg: `✅ CMP ${num} créée`, color: "#059669" });
     setShowCreate(false);
-    // Persist to Supabase
+    
     try {
-      const { error } = await sb.from("commandes_mp").insert({
+      // 2. Préparation du payload STRICT
+      const payload = {
         number:                  num,
         matiere:                 form.matiere,
         fournisseur_id:          isUUID(form.fournisseurId) ? form.fournisseurId : null,
-        fournisseur_name:        fn?.name || "",
         qty:                     parseInt(form.qty) || 1,
         unite:                   form.unite,
         date_livraison_convenue: form.dateSouhaitee || null,
+        acheteur:                acheteurInitial,
         status:                  "validated_chef_prod",
-        operator_id:             isUUID(user?.id) ? user.id : null,
-      });
+      };
+
+      // 3. Insertion et récupération relationnelle automatique
+      const { data, error } = await sb
+        .from("commandes_mp")
+        .insert(payload)
+        .select(`
+          *,
+          fournisseurs (
+            name
+          )
+        `);
+
       if (error) {
         console.error("[createCMP] Supabase error →", error);
         setToast({ msg: `⚠ Sauvegardé localement — Erreur DB: ${error.message}`, color: "#f97316" });
         return;
       }
+
+      // 4. Mutation de l'état local avec les valeurs définitives SQL
+      if (data && data[0]) {
+        const insertedRow = data[0];
+        const normalizedRow = {
+          ...insertedRow,
+          id: insertedRow.id,
+          fournisseurs: {
+            name: insertedRow.fournisseurs?.name || fn?.name || ""
+          },
+          fournisseur: insertedRow.fournisseurs?.name || fn?.name || ""
+        };
+        
+        setCmp(cs => cs.map(item => item.number === num ? normalizedRow : item));
+      }
+
       if (onSaved) onSaved();
     } catch (e) {
       console.error("[createCMP] network error →", e);
     }
   };
+
+  // 1. Ajoutez un nouvel état en haut de AchatsView
+const [matieresList, setMatieresList] = useState([]);
+
+// 2. Ajoutez un useEffect pour récupérer les matières depuis Supabase
+useEffect(() => {
+  const fetchMatieres = async () => {
+    try {
+      const { data, error } = await sb
+        .from("matieres")
+        .select("id, name")
+        .order("name", { ascending: true });
+        
+      if (error) throw error;
+      if (data) setMatieresList(data);
+    } catch (err) {
+      console.error("Erreur lors de la récupération des matières:", err);
+    }
+  };
+
+  fetchMatieres();
+}, []); // S'exécute une seule fois au montage du composant
 
   return (
     <div className="space-y-4">
@@ -120,7 +195,7 @@ export default function AchatsView({ user, cmp, setCmp, addAudit, fournisseurs, 
 
       <div className="flex items-center justify-between">
         <div><h1 className="text-xl font-bold text-gray-900">Achats — Matières Premières</h1><p className="text-xs text-gray-400 mt-0.5">Devis → Négociation → Commande → Livraison</p></div>
-        <div className="flex gap-2"><ExportFullMenu type="cmp" data={cmp}/>{isChefUsine && <Btn variant="primary" onClick={() => setShowCreate(true)}>+ Nouvelle CMP</Btn>}</div>
+        <div className="flex gap-2"><ExportFullMenu type="cmp" data={cmp}/>{(isAcheteur || isChefUsine) && <Btn variant="primary" onClick={() => setShowCreate(true)}>+ Nouvelle CMP</Btn>}</div>
       </div>
 
       {/* KPIs */}
@@ -154,16 +229,37 @@ export default function AchatsView({ user, cmp, setCmp, addAudit, fournisseurs, 
               {filtered.map((c, i) => {
                 const st  = ETAPE_STATUS[c.status] || { l:c.status, c:"#94a3b8" };
                 const blk = bloqueDepuis(c);
+                const isTerminal = ["livree", "annulee"].includes(c.status);
+                // ISO string comparison — no UTC-parsing timezone bugs
+                const todayStr = new Date().toISOString().slice(0, 10);
+                const dateConvenue = (c.date_livraison_convenue || c.dateLivraisonConvenue || "").slice(0, 10);
+                // Alert on past date for ALL non-terminal statuses (not just en_attente_livraison)
+                const dateDepassee = !isTerminal && dateConvenue && dateConvenue < todayStr;
+                const retardDateJours = dateDepassee
+                  ? Math.floor((new Date() - new Date(dateConvenue)) / 86400000)
+                  : 0;
+                // Fallback: en_attente_livraison with no date set, waiting >7 days since last update
+                const joursSansLivraison = c.status === "en_attente_livraison" ? (() => {
+                  const ref = c.updatedAt || c.created_at;
+                  return ref ? Math.floor((new Date() - new Date(ref)) / 86400000) : 0;
+                })() : 0;
+                const livraisonSansDate = c.status === "en_attente_livraison" && !dateConvenue && joursSansLivraison > 7;
+                const hasAlert = blk || dateDepassee || livraisonSansDate;
                 return (
-                  <tr key={c.id} className={`border-b hover:bg-gray-50/80 ${i%2?"bg-gray-50/30":""}${blk?" border-l-4 border-l-amber-400":""}${!c.acheteur&&c.status==="validated_chef_prod"?" border-l-4 border-l-red-400":""}`}>
+                  <tr key={c.id} className={`border-b hover:bg-gray-50/80 ${i%2?"bg-gray-50/30":""}${hasAlert?" border-l-4 border-l-amber-400":""}${!c.acheteur&&c.status==="validated_chef_prod"?" border-l-4 border-l-red-400":""}`}>
                     <td className="px-3 py-3 font-bold text-blue-700 font-mono">{c.number}</td>
                     <td className="px-3 py-3 font-semibold">{c.matiere}</td>
-                    <td className="px-3 py-3 text-gray-600">{c.fournisseur}</td>
+                    <td className="px-3 py-3 text-gray-600">{c.fournisseurs?.name || c.fournisseur || "—"}</td>
                     <td className="px-3 py-3 font-bold">{(c.qty||0).toLocaleString()} {c.unite}</td>
-                    <td className="px-3 py-3 text-gray-500">{c.dateLivraisonConvenue || "—"}</td>
+                    <td className="px-3 py-3 text-gray-500">{c.date_livraison_convenue || c.dateLivraisonConvenue || "—"}</td>
                     <td className="px-3 py-3">{c.acheteur || <span className="text-red-500 font-bold">Non assigné</span>}</td>
                     <td className="px-3 py-3"><span className="px-2 py-0.5 rounded-full text-xs font-bold text-white" style={{ background: st.c }}>{st.l}</span></td>
-                    <td className="px-3 py-3">{blk ? <span className="text-amber-600 font-bold text-xs">⏰ +{blk}j</span> : "—"}</td>
+                    <td className="px-3 py-3">
+                      {blk && <span className="text-amber-600 font-bold text-xs block">⏰ +{blk}j sans action</span>}
+                      {dateDepassee && <span className="text-red-600 font-bold text-xs block">📅 +{retardDateJours}j date dépassée</span>}
+                      {livraisonSansDate && <span className="text-orange-500 font-bold text-xs block">📦 En attente +{joursSansLivraison}j</span>}
+                      {!hasAlert && "—"}
+                    </td>
                     <td className="px-3 py-3"><Btn variant="secondary" size="xs" onClick={() => setSelected(c)}>Avancer</Btn></td>
                   </tr>
                 );
@@ -179,7 +275,15 @@ export default function AchatsView({ user, cmp, setCmp, addAudit, fournisseurs, 
         {selected && (
           <div className="space-y-4">
             <div className="grid grid-cols-3 gap-4 text-xs">
-              {[["Fournisseur",selected.fournisseur],["Quantité",`${(selected.qty||0).toLocaleString()} ${selected.unite}`],["Acheteur",selected.acheteur||"Non assigné"],["Date souhaitée",selected.dateLivraisonSouhaitee||"—"],["Date convenue",selected.dateLivraisonConvenue||"—"],["Paiement",selected.modePaiement||"—"]].map(([l,v])=>(
+              {[
+                // CORRECTION ICI : Affichage également sécurisé dans les détails du Modal
+                ["Fournisseur", selected.fournisseurs?.name || selected.fournisseur || "—"],
+                ["Quantité", `${(selected.qty||0).toLocaleString()} ${selected.unite}`],
+                ["Acheteur", selected.acheteur||"Non assigné"],
+                ["Date souhaitée", selected.dateLivraisonSouhaitee||"—"],
+                ["Date convenue", selected.date_livraison_convenue || selected.dateLivraisonConvenue||"—"],
+                ["Paiement", selected.modePaiement||"—"]
+              ].map(([l,v])=>(
                 <div key={l}><div className="font-bold text-gray-400 uppercase">{l}</div><div className="font-semibold mt-0.5">{v}</div></div>
               ))}
             </div>
@@ -219,13 +323,13 @@ export default function AchatsView({ user, cmp, setCmp, addAudit, fournisseurs, 
 
       {/* Modal création */}
       <Modal open={showCreate} onClose={() => setShowCreate(false)} title="Nouvelle Commande MP" maxWidth="max-w-xl">
-        <CreateCMPForm fournisseurs={foursList} onSave={createCMP} onClose={() => setShowCreate(false)}/>
+        <CreateCMPForm fournisseurs={foursList} matieres={matieresList} onSave={createCMP} onClose={() => setShowCreate(false)}/>
       </Modal>
     </div>
   );
 }
 
-function CreateCMPForm({ fournisseurs, onSave, onClose }) {
+function CreateCMPForm({ fournisseurs, matieres, onSave, onClose }) {
   const [f, setF] = useState({ fournisseurId:"", matiere:"", qty:"", unite:"kg", dateSouhaitee:"", modePaiement:"Virement 30j", notes:"" });
   const up = (k,v) => setF(x=>({...x,[k]:v}));
 
@@ -236,9 +340,13 @@ function CreateCMPForm({ fournisseurs, onSave, onClose }) {
           <option value="">Sélectionner...</option>
           {fournisseurs.map(fn => <option key={fn.id} value={fn.id}>{fn.name} (⭐{fn.evaluation})</option>)}
         </Select>
-        <Select label="Matière *" value={f.matiere} onChange={e => up("matiere",e.target.value)}>
+        <Select label="Matière *" value={f.matiere} onChange={e => up("matiere", e.target.value)}>
           <option value="">Sélectionner...</option>
-          {MATIERES.map(m => <option key={m}>{m}</option>)}
+          {matieres.map(m => (
+            <option key={m.id} value={m.name}> {/* Mettez value={m.id} si votre table "commandes_mp" stocke des UUID à la place du texte brut */}
+              {m.name}
+            </option>
+          ))}
         </Select>
         <Input label="Quantité *" type="number" min="1" value={f.qty} onChange={e => up("qty",e.target.value)}/>
         <Select label="Unité" value={f.unite} onChange={e => up("unite",e.target.value)}>

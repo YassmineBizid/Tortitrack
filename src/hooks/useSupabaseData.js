@@ -139,17 +139,21 @@ const mapCMP = (r) => ({
   id:                     r.id,
   number:                 r.number,
   matiere:                r.matiere,
+  fournisseur_id:         r.fournisseur_id || "",
   fournisseurId:          r.fournisseur_id || "",
-  fournisseur:            r.fournisseur_name || "",
+  fournisseurs:           r.fournisseurs ? { name: r.fournisseurs.name || "" } : null,
+  fournisseur:            r.fournisseurs?.name || r.fournisseur_name || "",
   qty:                    parseFloat(r.qty) || 0,
   unite:                  r.unite || "kg",
   prixU:                  parseFloat(r.prix_unitaire) || 0,
   total:                  parseFloat(r.total) || 0,
   status:                 r.status || "en_attente_devis",
   dateLivraisonConvenue:  r.date_livraison_convenue || null,
+  date_livraison_convenue: r.date_livraison_convenue || null,
   acheteur:               r.acheteur || "",
   notes:                  r.notes || "",
   updatedAt:              r.updated_at,
+  created_at:             r.created_at,
 });
 
 const mapFacture = (r) => {
@@ -322,7 +326,7 @@ export function useSupabaseData(fallback) {
         sb.from("return_orders").select("*, return_lines(*)").order("date", { ascending: false }),
         sb.from("clients").select("*").order("name"),
         sb.from("commandes_pf").select("*, commandes_pf_lines(*)").order("created_at", { ascending: false }),
-        sb.from("commandes_mp").select("*").order("created_at", { ascending: false }),
+        sb.from("commandes_mp").select("*, fournisseurs(name)").order("created_at", { ascending: false }),
         sb.from("factures").select("*, facture_lignes(*)").order("date", { ascending: false }),
         sb.from("encaissements").select("*").order("date", { ascending: false }),
         sb.from("stock_camion").select("*, products(name), production_lots(lot_number, expiry_date)").order("date", { ascending: false }),
@@ -409,7 +413,7 @@ export function useSupabaseData(fallback) {
           const { data, error } = await sb.from("commandes_pf").select("*, commandes_pf_lines(*)").order("created_at", { ascending: false });
           if (!error && data) setCpf(data.map(mapCPF));
         } else if (t === "commandes_mp") {
-          const { data, error } = await sb.from("commandes_mp").select("*").order("created_at", { ascending: false });
+          const { data, error } = await sb.from("commandes_mp").select("*, fournisseurs(name)").order("created_at", { ascending: false });
           if (!error && data) setCmp(data.map(mapCMP));
         } else if (t === "factures") {
           const { data, error } = await sb.from("factures").select("*, facture_lignes(*)").order("date", { ascending: false });
