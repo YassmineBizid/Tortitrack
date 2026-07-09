@@ -158,6 +158,40 @@ export function scoreProfilClient(c) {
   };
 }
 
+function CHK({ label, k, value, onChange }) {
+  return (
+    <label className="flex items-center gap-2 cursor-pointer">
+      <input
+        type="checkbox"
+        checked={value}
+        onChange={e => onChange(k, e.target.checked)}
+        className="h-4 w-4"
+      />
+      <span className="text-sm">{label}</span>
+    </label>
+  );
+}
+
+function SensBar({ label, k, value, onChange }) {
+  return (
+    <div className="grid grid-cols-2 items-center gap-4">
+      <span className="text-sm">{label}</span>
+
+      <div className="flex items-center gap-2">
+        <input
+          type="range"
+          min="1"
+          max="5"
+          value={value}
+          onChange={e => onChange(k, Number(e.target.value))}
+          className="flex-1"
+        />
+        <span className="w-6 text-center font-bold">{value}</span>
+      </div>
+    </div>
+  );
+}
+
 export function NewClientFormV2({ onSave, users = [] }) {
   const [selectedFiles, setSelectedFiles] = useState([]);
   
@@ -555,11 +589,40 @@ export function NewClientFormV2({ onSave, users = [] }) {
           <div>
             <div className="text-xs font-bold text-gray-500 uppercase mb-2">Acceptations marketing</div>
             <div className="grid grid-cols-3 gap-2">
-              <CHK label="Présentoir" k="accepPresentoir" />
-              <CHK label="Frigo dédié" k="accepFrigo" />
-              <CHK label="Affichage" k="accepAffichage" />
-              <CHK label="Animation" k="accepAnimation" />
-              <CHK label="Dégustation" k="accepDegustation" />
+             <CHK
+  label="Présentoir"
+  k="accepPresentoir"
+  value={form.accepPresentoir}
+  onChange={up}
+/>
+
+<CHK
+  label="Frigo dédié"
+  k="accepFrigo"
+  value={form.accepFrigo}
+  onChange={up}
+/>
+
+<CHK
+  label="Affichage"
+  k="accepAffichage"
+  value={form.accepAffichage}
+  onChange={up}
+/>
+
+<CHK
+  label="Animation"
+  k="accepAnimation"
+  value={form.accepAnimation}
+  onChange={up}
+/>
+
+<CHK
+  label="Dégustation"
+  k="accepDegustation"
+  value={form.accepDegustation}
+  onChange={up}
+/>
             </div>
           </div>
           <div>
@@ -591,12 +654,41 @@ export function NewClientFormV2({ onSave, users = [] }) {
           <div>
             <div className="text-xs font-bold text-gray-500 uppercase mb-2">Comportement d'achat (1=Faible 5=Fort)</div>
             <div className="space-y-2">
-              <SensBar label="Sensibilité prix" k="sensibilitePrix" />
-              <SensBar label="Sensibilité promos" k="sensibilitéPromos" />
-              <SensBar label="Sensibilité nouveauté" k="sensibilitéNouveauté" />
-              <SensBar label="Sensibilité qualité" k="sensibilitéQualite" />
-              <SensBar label="Sensibilité dispo" k="sensibilitéDispo" />
-            </div>
+  <SensBar
+    label="Sensibilité prix"
+    k="sensibilitePrix"
+    value={form.sensibilitePrix}
+    onChange={up}
+  />
+
+  <SensBar
+    label="Sensibilité promos"
+    k="sensibilitéPromos"
+    value={form.sensibilitéPromos}
+    onChange={up}
+  />
+
+  <SensBar
+    label="Sensibilité nouveauté"
+    k="sensibilitéNouveauté"
+    value={form.sensibilitéNouveauté}
+    onChange={up}
+  />
+
+  <SensBar
+    label="Sensibilité qualité"
+    k="sensibilitéQualite"
+    value={form.sensibilitéQualite}
+    onChange={up}
+  />
+
+  <SensBar
+    label="Sensibilité dispo"
+    k="sensibilitéDispo"
+    value={form.sensibilitéDispo}
+    onChange={up}
+  />
+</div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <Select label="Profil décisionnel" value={form.profilAcheteur} onChange={(e) => up("profilAcheteur", e.target.value)}>

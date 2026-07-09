@@ -6,24 +6,63 @@ import { Ico } from "../components/Ico";
 export function SettingsView() {
   const [vendors, setVendors] = useState([]);
   const [flotte, setFlotte] = useState([]);
+  const [machines, setMachines] = useState([]); 
+  const [userProfiles, setUserProfiles] = useState([]); 
   const [settings, setSettings] = useState({ gm_email: "direction@btfood.tn", return_alert_pct: "3", dlc_alert_days: "3" });
   const [panel, setPanel] = useState(null);
-  const [vForm, setVForm] = useState({ code: "", name: "", phone: "", vehicle_plate: "", zone: "" });
+  
+  
+  const [brandsList, setBrandsList] = useState([]);
+  const [zonesList, setZonesList] = useState([]);
+
+  const [vForm, setVForm] = useState({ 
+  code: "", 
+  name: "", 
+  phone: "", 
+  vehicle_id: "", 
+  vehicle_plate: "", 
+  zone_id: "",  
+  brand_id: "", 
+  user_profile_id: "" 
+  });
   const [fForm, setFForm] = useState({ immat: "", type: "", cap_kg: 0, cap_m3: 0, commercial: "", status: "disponible" });
+  const [mForm, setMForm] = useState({ code: "", name: "", type: "", status: "operationnel", locationZone: "", lastMaintenance: "", nextMaintenance: "" });
+  
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
+  const [activeTab, setActiveTab] = useState("general");
+
+  // Liste des marques fixes de l'entreprise (à adapter si dynamique)
+  const BRANDS = ["Gourmandise", "Chahia", "Délice", "Sidi Ali", "Autre"];
 
   const showToast = (message, color = "#111827") => setToast({ message, color });
 
   const load = async () => {
     setLoading(true);
-    const [{ data: vendorsData }, { data: flotteData }, { data: settingsData }] = await Promise.all([
+    const [
+      { data: vendorsData }, 
+      { data: flotteData }, 
+      { data: machinesData }, 
+      { data: settingsData },
+      { data: profilesData },
+      { data: brandsData }, 
+      { data: zonesData }
+    ] = await Promise.all([
       sb.from("vendors").select("*").eq("is_active", true).order("name"),
       sb.from("flotte").select("*").order("immat"),
+      sb.from("machines").select("*").order("name"), 
       sb.from("app_settings").select("key,value"),
+      sb.from("user_profiles").select("id, full_name, email, phone").eq("role", "commercial").order("full_name"),
+      sb.from("brands").select("id, name").order("name"),
+      sb.from("zones").select("id, name").order("name")
     ]);
+
     setVendors(vendorsData || []);
     setFlotte(flotteData || []);
+    setMachines(machinesData || []); 
+    setUserProfiles(profilesData || []);
+    setBrandsList(brandsData || []);
+    setZonesList(zonesData || []);
     if (settingsData) setSettings(prev => ({ ...prev, ...Object.fromEntries(settingsData.map(x => [x.key, x.value])) }));
     setLoading(false);
   };
@@ -35,89 +74,165 @@ export function SettingsView() {
     showToast("✅ Paramètre enregistré", "#059669");
   };
 
-  const saveVendor = async () => {
-    if (!vForm.name || !vForm.vehicle_plate) {
-      showToast("Nom et véhicule requis", "#dc2626");
+  /* --- ACTIONS VENDEURS --- */
+  const handleProfileChange = (profileId) => {
+    if (!profileId) {
+      setVForm(f => ({ ...f, user_profile_id: "", name: "", phone: "" }));
       return;
     }
-    if (panel.mode === "edit") {
-      await sb.from("vendors").update({ ...vForm, updated_at: new Date().toISOString() }).eq("id", panel.data.id);
-    } else {
-      await sb.from("vendors").insert({ ...vForm, code: vForm.code || `V${Date.now()}` });
+    const profile = userProfiles.find(p => String(p.id) === String(profileId));
+    if (profile) {
+      setVForm(f => ({
+        ...f,
+        user_profile_id: profileId,
+        name: profile.full_name || f.name,
+        phone: profile.phone || f.phone || ""
+      }));
     }
-    showToast(panel.mode === "edit" ? "✅ Vendeur modifié" : "✅ Vendeur ajouté", "#059669");
+  };
+
+const saveVendor = async () => {
+  if (!vForm.name) { showToast("Nom du vendeur requis", "#dc2626"); return; }
+  // Champs obligatoires uniquement pour l'ajout
+  if (panel.mode === "add") {
+    if (!vForm.user_profile_id) { showToast("Veuillez lier un compte utilisateur", "#dc2626"); return; }
+    if (!vForm.zone_id) { showToast("Veuillez spécifier la zone d'affectation", "#dc2626"); return; }
+    if (!vForm.brand_id) { showToast("Veuillez spécifier la marque exclusive", "#dc2626"); return; }
+  }
+
+  const selectedVehicle = flotte.find(f => String(f.id) === String(vForm.vehicle_id));
+
+  let correctVehicleId = null;
+  if (vForm.vehicle_id) {
+    correctVehicleId = String(vForm.vehicle_id).includes("-")
+      ? vForm.vehicle_id
+      : parseInt(vForm.vehicle_id, 10);
+  }
+
+  const payload = {
+    code: vForm.code || `V${Date.now()}`,
+    name: vForm.name,
+    phone: vForm.phone || "",
+    user_profile_id: vForm.user_profile_id || null,
+    brand_id: vForm.brand_id || null,
+    zone_id: vForm.zone_id || null,
+    vehicle_id: correctVehicleId,
+    vehicle_plate: selectedVehicle ? selectedVehicle.immat : (vForm.vehicle_plate || "")
+  };
+
+  let error = null;
+
+  if (panel.mode === "edit") {
+    const vendorId = panel.data.id;
+    const { data: updated, error: err } = await sb
+      .from("vendors")
+      .update({ ...payload, updated_at: new Date().toISOString() })
+      .eq("id", vendorId)
+      .select();
+    error = err;
+    // Aucune ligne modifiée = RLS bloque silencieusement
+    if (!err && (!updated || updated.length === 0)) {
+      error = { message: "Modification refusée — permissions insuffisantes (RLS). Vérifiez que la migration 18_fix_vendors_columns.sql a été exécutée." };
+    }
+  } else {
+    const { error: err } = await sb
+      .from("vendors")
+      .insert([payload]);
+    error = err;
+  }
+
+  if (error) {
+    console.error("Erreur de sauvegarde Supabase :", error);
+    showToast(`❌ Échec : ${error.message}`, "#dc2626");
+  } else {
+    showToast(panel.mode === "edit" ? "✅ Vendeur modifié avec succès" : "✅ Vendeur ajouté avec succès", "#059669");
     setPanel(null);
     load();
-  };
+  }
+};
 
   const delVendor = async (id) => {
     if (!confirm("Désactiver ce vendeur ?")) return;
     await sb.from("vendors").update({ is_active: false }).eq("id", id);
-    showToast("Vendeur désactivé", "#059669");
-    load();
+    showToast("Vendeur désactivé", "#059669"); load();
   };
 
+  /* --- ACTIONS FLOTTE --- */
   const saveFlotte = async () => {
-    if (!fForm.immat.trim()) {
-      showToast("Immatriculation requise", "#dc2626");
-      return;
-    }
-    const payload = {
-      immat: fForm.immat.trim(),
-      type: fForm.type.trim(),
-      cap_kg: parseInt(fForm.cap_kg, 10) || 0,
-      cap_m3: parseInt(fForm.cap_m3, 10) || 0,
-      commercial: fForm.commercial.trim(),
-      status: fForm.status,
-    };
+    if (!fForm.immat.trim()) { showToast("Immatriculation requise", "#dc2626"); return; }
+    const payload = { immat: fForm.immat.trim(), type: fForm.type.trim(), cap_kg: parseInt(fForm.cap_kg, 10) || 0, cap_m3: parseInt(fForm.cap_m3, 10) || 0, commercial: fForm.commercial.trim(), status: fForm.status };
     if (panel.mode === "edit") {
       await sb.from("flotte").update(payload).eq("id", panel.data.id);
     } else {
       await sb.from("flotte").insert(payload);
     }
     showToast(panel.mode === "edit" ? "✅ Véhicule modifié" : "✅ Véhicule ajouté", "#059669");
-    setPanel(null);
-    load();
+    setPanel(null); load();
   };
 
   const delFlotte = async (id) => {
     if (!confirm("Passer ce véhicule en maintenance ?")) return;
     await sb.from("flotte").update({ status: "maintenance" }).eq("id", id);
-    showToast("Véhicule mis en maintenance", "#059669");
-    load();
+    showToast("Véhicule mis en maintenance", "#059669"); load();
   };
 
-  const openAddVendor = () => {
-    setVForm({ code: "", name: "", phone: "", vehicle_plate: "", zone: "" });
-    setPanel({ mode: "add", type: "vendor" });
+  /* --- ACTIONS MACHINES --- */
+  const saveMachine = async () => {
+    if (!mForm.name || !mForm.code) { showToast("Nom et Code machine requis", "#dc2626"); return; }
+    const payload = {
+      name: mForm.name.trim(),
+      code: mForm.code.trim().toUpperCase(),
+      type: mForm.type.trim(),
+      status: mForm.status,
+      locationZone: mForm.locationZone.trim(),
+      lastMaintenance: mForm.lastMaintenance || null,
+      nextMaintenance: mForm.nextMaintenance || null
+    };
+    if (panel.mode === "edit") {
+      await sb.from("machines").update(payload).eq("id", panel.data.id);
+    } else {
+      await sb.from("machines").insert(payload);
+    }
+    showToast(panel.mode === "edit" ? "✅ Machine modifiée" : "✅ Machine ajoutée", "#059669");
+    setPanel(null); load();
   };
 
-  const openEditVendor = (vendor) => {
-    setVForm(vendor);
-    setPanel({ mode: "edit", type: "vendor", data: vendor });
+  const delMachine = async (id) => {
+    if (!confirm("Passer cette machine en panne ?")) return;
+    await sb.from("machines").update({ status: "en_panne" }).eq("id", id);
+    showToast("Machine marquée en panne", "#059669"); load();
   };
 
-  const openAddFlotte = () => {
-    setFForm({ immat: "", type: "", cap_kg: 0, cap_m3: 0, commercial: "", status: "disponible" });
-    setPanel({ mode: "add", type: "flotte" });
+  const openAddVendor = () => { 
+  setVForm({ code: "", name: "", phone: "", vehicle_id: "", vehicle_plate: "", zone_id: "", brand_id: "", user_profile_id: "" }); 
+  setPanel({ mode: "add", type: "vendor" }); 
   };
 
-  const openEditFlotte = (vehicle) => {
-    setFForm({
-      immat: vehicle.immat || "",
-      type: vehicle.type || "",
-      cap_kg: vehicle.cap_kg || 0,
-      cap_m3: vehicle.cap_m3 || 0,
-      commercial: vehicle.commercial || "",
-      status: vehicle.status || "disponible",
-    });
-    setPanel({ mode: "edit", type: "flotte", data: vehicle });
-  };
+  const openEditVendor = (vendor) => { 
+  setVForm({ 
+    code: vendor.code || "",
+    name: vendor.name || "", 
+    phone: vendor.phone || "", 
+    vehicle_id: vendor.vehicle_id || "", 
+    vehicle_plate: vendor.vehicle_plate || "", 
+    zone_id: vendor.zone_id || "", 
+    brand_id: vendor.brand_id || "", 
+    user_profile_id: vendor.user_profile_id || "" 
+  }); 
+  // On s'assure que panel.data contient l'ID propre, peu importe son type
+  setPanel({ mode: "edit", type: "vendor", data: { id: vendor.id } }); 
+};
+  
+  const openAddFlotte = () => { setFForm({ immat: "", type: "", cap_kg: 0, cap_m3: 0, commercial: "", status: "disponible" }); setPanel({ mode: "add", type: "flotte" }); };
+  const openEditFlotte = (vehicle) => { setFForm({ immat: vehicle.immat || "", type: vehicle.type || "", cap_kg: vehicle.cap_kg || 0, cap_m3: vehicle.cap_m3 || 0, commercial: vehicle.commercial || "", status: vehicle.status || "disponible" }); setPanel({ mode: "edit", type: "flotte", data: vehicle }); };
+
+  const openAddMachine = () => { setMForm({ code: "", name: "", type: "", status: "operationnel", locationZone: "", lastMaintenance: "", nextMaintenance: "" }); setPanel({ mode: "add", type: "machine" }); };
+  const openEditMachine = (m) => { setMForm({ code: m.code || "", name: m.name || "", type: m.type || "", status: m.status || "operationnel", locationZone: m.locationZone || "", lastMaintenance: m.lastMaintenance || "", nextMaintenance: m.nextMaintenance || "" }); setPanel({ mode: "edit", type: "machine", data: m }); };
 
   const summaryCards = [
     { label: "Vendeurs actifs", value: vendors.length, accent: "bg-blue-50 text-blue-700" },
     { label: "Véhicules enregistrés", value: flotte.length, accent: "bg-slate-50 text-slate-700" },
-    { label: "Véhicules dispo", value: flotte.filter(v => v.status === "disponible").length, accent: "bg-emerald-50 text-emerald-700" },
+    { label: "Machines Usine", value: machines.length, accent: "bg-purple-50 text-purple-700" },
   ];
 
   return (
@@ -127,11 +242,7 @@ export function SettingsView() {
       <div className="flex items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-gray-900">Configuration</h1>
-          <p className="text-xs text-gray-400 mt-0.5">Paramètres système · Vendeurs · Véhicules · Aligné sur l'interface de l'app</p>
-        </div>
-        <div className="flex gap-2">
-          <Btn variant="primary" size="sm" onClick={openAddVendor}>+ Ajouter un vendeur</Btn>
-          <Btn variant="secondary" size="sm" onClick={openAddFlotte}>+ Ajouter un véhicule</Btn>
+          <p className="text-xs text-gray-400 mt-0.5">Paramètres système · Vendeurs · Véhicules · Équipements</p>
         </div>
       </div>
 
@@ -144,141 +255,251 @@ export function SettingsView() {
         ))}
       </div>
 
+      <div className="flex flex-wrap gap-2 border-b border-gray-100 pb-2">
+        <button onClick={() => setActiveTab("general")} className={`px-4 py-2 rounded-xl text-xs font-bold border transition ${activeTab === "general" ? "bg-blue-600 text-white border-blue-600 shadow-sm" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}>⚙️ Paramètres</button>
+        <button onClick={() => setActiveTab("vendors")} className={`px-4 py-2 rounded-xl text-xs font-bold border transition ${activeTab === "vendors" ? "bg-blue-600 text-white border-blue-600 shadow-sm" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}>👤 Vendeurs ({vendors.length})</button>
+        <button onClick={() => setActiveTab("flotte")} className={`px-4 py-2 rounded-xl text-xs font-bold border transition ${activeTab === "flotte" ? "bg-blue-600 text-white border-blue-600 shadow-sm" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}>🚚 Véhicules ({flotte.length})</button>
+        <button onClick={() => setActiveTab("machines")} className={`px-4 py-2 rounded-xl text-xs font-bold border transition ${activeTab === "machines" ? "bg-blue-600 text-white border-blue-600 shadow-sm" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}>🏭 Machines ({machines.length})</button>
+      </div>
+
       {loading ? (
         <Card className="p-12 text-center text-gray-400">
           <div className="inline-block w-6 h-6 border-2 border-gray-200 border-t-blue-600 rounded-full animate-spin mb-2" />
-          <p className="text-sm">Chargement des paramètres…</p>
+          <p className="text-sm">Chargement des données…</p>
         </Card>
       ) : (
         <>
-          <Card className="overflow-hidden">
-            <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-slate-50 to-white flex items-center justify-between">
-              <div>
-                <div className="text-sm font-bold text-gray-900">⚙️ Paramètres Direction</div>
-                <div className="text-xs text-gray-400 mt-0.5">Ces valeurs alimentent les alertes et la diffusion BL / BR</div>
-              </div>
-            </div>
-            <div className="p-5">
+          {/* ... onglets general, flotte, machines inchangés ... */}
+          {activeTab === "general" && (
+            <Card className="p-5">
+              <div className="text-sm font-bold text-gray-900 mb-4">⚙️ Paramètres Direction</div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <Input label="Email Direction" type="email" value={settings.gm_email} onChange={e => setSettings(s => ({ ...s, gm_email: e.target.value }))} onBlur={() => saveSetting("gm_email", settings.gm_email)} />
                 <Input label="Seuil alerte taux retour (%)" type="number" value={settings.return_alert_pct} onChange={e => setSettings(s => ({ ...s, return_alert_pct: e.target.value }))} onBlur={() => saveSetting("return_alert_pct", settings.return_alert_pct)} />
                 <Input label="Alerte DLC (jours)" type="number" value={settings.dlc_alert_days} onChange={e => setSettings(s => ({ ...s, dlc_alert_days: e.target.value }))} onBlur={() => saveSetting("dlc_alert_days", settings.dlc_alert_days)} />
               </div>
-              <div className="mt-4 text-xs text-gray-400">Les paramètres sont enregistrés automatiquement à la sortie du champ.</div>
-            </div>
-          </Card>
+            </Card>
+          )}
 
-          <Card className="overflow-hidden">
-            <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-slate-50 to-white flex items-center justify-between">
-              <div>
-                <div className="text-sm font-bold text-gray-900">👤 Vendeurs / Chauffeurs</div>
-                <div className="text-xs text-gray-400 mt-0.5">Gestion des tournées, véhicules et zones</div>
+          {activeTab === "vendors" && (
+            <Card className="overflow-hidden">
+              <div className="px-4 py-3 border-b border-gray-50 bg-gray-50/50 flex justify-between items-center">
+                <span className="text-xs font-bold text-gray-700">Liste des Vendeurs / Chauffeurs</span>
+                <Btn variant="primary" size="xs" onClick={openAddVendor}>+ Ajouter un vendeur</Btn>
               </div>
-              <Btn variant="secondary" size="sm" onClick={openAddVendor}><Ico n="plus" size={14} />Ajouter</Btn>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b border-gray-100">
-                  <tr className="text-xs font-bold text-gray-600 uppercase tracking-wider">
-                    <th className="text-left px-4 py-3">Code</th>
-                    <th className="text-left px-4 py-3">Nom</th>
-                    <th className="text-left px-4 py-3">Téléphone</th>
-                    <th className="text-left px-4 py-3">Véhicule</th>
-                    <th className="text-left px-4 py-3">Zone</th>
-                    <th className="text-center px-4 py-3">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {vendors.map(v => (
-                    <tr key={v.id} className="hover:bg-gray-50 transition">
-                      <td className="px-4 py-3"><span className="inline-block bg-blue-100 text-blue-700 text-xs font-bold px-2.5 py-1 rounded-lg">{v.code}</span></td>
-                      <td className="px-4 py-3 font-medium text-gray-900">{v.name}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{v.phone || "—"}</td>
-                      <td className="px-4 py-3"><span className="inline-block bg-slate-100 text-slate-700 text-xs font-bold px-2.5 py-1 rounded-lg">{v.vehicle_plate}</span></td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{v.zone || "—"}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center justify-center gap-2">
-                          <button className="px-2 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-600 text-xs font-medium transition" onClick={() => openEditVendor(v)} title="Modifier">✏️</button>
-                          <button className="px-2 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 text-xs font-medium transition" onClick={() => delVendor(v.id)} title="Désactiver">🗑</button>
-                        </div>
-                      </td>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 text-xs font-bold text-gray-500 uppercase">
+                    <tr>
+                      <th className="text-left px-4 py-3">Code</th>
+                      <th className="text-left px-4 py-3">Nom</th>
+                      <th className="text-left px-4 py-3">Marque</th>
+                      <th className="text-left px-4 py-3">Zone (Unique)</th>
+                      <th className="text-left px-4 py-3">Téléphone</th>
+                      <th className="text-left px-4 py-3">Véhicule</th>
+                      <th className="text-center px-4 py-3">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Card>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+  {vendors.map(v => {
+    const matchingVehicle = flotte.find(f => String(f.id) === String(v.vehicle_id));
+    
+    // CORRECTION : Trouver la marque et la zone correspondantes dans les listes chargées depuis Supabase
+    const matchingBrand = brandsList.find(b => String(b.id) === String(v.brand_id));
+    const matchingZone = zonesList.find(z => String(z.id) === String(v.zone_id));
 
-          <Card className="overflow-hidden">
-            <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-slate-50 to-white flex items-center justify-between">
-              <div>
-                <div className="text-sm font-bold text-gray-900">🚚 Véhicules</div>
-                <div className="text-xs text-gray-400 mt-0.5">Gestion de la flotte avec affichage direct des statuts</div>
+    return (
+      <tr key={v.id} className="hover:bg-gray-50">
+        <td className="px-4 py-3 font-bold text-blue-600">{v.code}</td>
+        <td className="px-4 py-3 font-medium text-gray-900">{v.name}</td>
+        
+        {/* AFFICHAGE MARQUE CORRIGÉ */}
+        <td className="px-4 py-3">
+          <span className="bg-purple-100 text-purple-800 font-semibold text-xs px-2 py-0.5 rounded">
+            {matchingBrand ? matchingBrand.name : "Non spécifiée"}
+          </span>
+        </td>
+        
+        {/* AFFICHAGE ZONE CORRIGÉ */}
+        <td className="px-4 py-3 text-gray-700 font-medium">
+          {matchingZone ? matchingZone.name : "—"}
+        </td>
+        
+        <td className="px-4 py-3 text-gray-600">{v.phone || "—"}</td>
+        <td className="px-4 py-3">
+          <span className="bg-slate-100 text-slate-700 font-mono text-xs px-2 py-0.5 rounded">
+            {matchingVehicle ? matchingVehicle.immat : (v.vehicle_plate || "Non assigné")}
+          </span>
+        </td>
+        <td className="px-4 py-3 text-center">
+          <button className="text-blue-600 mr-3" onClick={() => openEditVendor(v)}>✏️</button>
+          <button className="text-red-600" onClick={() => delVendor(v.id)}>🗑️</button>
+        </td>
+      </tr>
+    );
+  })}
+</tbody>
+                </table>
               </div>
-              <Btn variant="secondary" size="sm" onClick={openAddFlotte}><Ico n="plus" size={14} />Ajouter</Btn>
-            </div>
+            </Card>
+          )}
 
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b border-gray-100">
-                  <tr className="text-xs font-bold text-gray-600 uppercase tracking-wider">
-                    <th className="text-left px-4 py-3">Immat</th>
-                    <th className="text-left px-4 py-3">Type</th>
-                    <th className="text-right px-4 py-3">Cap. Kg</th>
-                    <th className="text-right px-4 py-3">Cap. m³</th>
-                    <th className="text-left px-4 py-3">Commercial</th>
-                    <th className="text-left px-4 py-3">Statut</th>
-                    <th className="text-center px-4 py-3">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {flotte.map(vehicle => (
-                    <tr key={vehicle.id} className="hover:bg-gray-50 transition">
-                      <td className="px-4 py-3"><span className="inline-block bg-blue-100 text-blue-700 text-xs font-bold px-2.5 py-1 rounded-lg">{vehicle.immat}</span></td>
-                      <td className="px-4 py-3 font-medium text-gray-900">{vehicle.type || "—"}</td>
-                      <td className="px-4 py-3 text-right text-sm text-gray-600">{vehicle.cap_kg || 0}</td>
-                      <td className="px-4 py-3 text-right text-sm text-gray-600">{vehicle.cap_m3 || 0}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{vehicle.commercial || "—"}</td>
-                      <td className="px-4 py-3">
-                        <span className={`inline-flex text-xs font-bold px-2.5 py-1 rounded-lg ${vehicle.status === "disponible" ? "bg-emerald-100 text-emerald-700" : vehicle.status === "en_route" ? "bg-blue-100 text-blue-700" : "bg-amber-100 text-amber-700"}`}>
-                          {vehicle.status || "disponible"}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center justify-center gap-2">
-                          <button className="px-2 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-600 text-xs font-medium transition" onClick={() => openEditFlotte(vehicle)} title="Modifier">✏️</button>
-                          <button className="px-2 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 text-xs font-medium transition" onClick={() => delFlotte(vehicle.id)} title="Maintenance">🗑</button>
-                        </div>
-                      </td>
+          {activeTab === "flotte" && (
+            <Card className="overflow-hidden">
+              <div className="px-4 py-3 border-b border-gray-50 bg-gray-50/50 flex justify-between items-center">
+                <span className="text-xs font-bold text-gray-700">Flotte de transport</span>
+                <Btn variant="primary" size="xs" onClick={openAddFlotte}>+ Ajouter un véhicule</Btn>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 text-xs font-bold text-gray-500 uppercase">
+                    <tr>
+                      <th className="text-left px-4 py-3">Immatriculation</th>
+                      <th className="text-left px-4 py-3">Type</th>
+                      <th className="text-right px-4 py-3">Cap. Kg</th>
+                      <th className="text-right px-4 py-3">Cap. m³</th>
+                      <th className="text-left px-4 py-3">Statut</th>
+                      <th className="text-center px-4 py-3">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Card>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {flotte.map(vehicle => (
+                      <tr key={vehicle.id} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 font-mono font-bold text-gray-900">{vehicle.immat}</td>
+                        <td className="px-4 py-3 text-gray-600">{vehicle.type || "—"}</td>
+                        <td className="px-4 py-3 text-right">{vehicle.cap_kg || 0}</td>
+                        <td className="px-4 py-3 text-right">{vehicle.cap_m3 || 0}</td>
+                        <td className="px-4 py-3">
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded-md ${vehicle.status === "disponible" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>{vehicle.status}</span>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <button className="text-blue-600 mr-3" onClick={() => openEditFlotte(vehicle)}>✏️</button>
+                          <button className="text-amber-600" onClick={() => delFlotte(vehicle.id)}>🔧</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
+
+          {activeTab === "machines" && (
+            <Card className="overflow-hidden">
+              <div className="px-4 py-3 border-b border-gray-50 bg-gray-50/50 flex justify-between items-center">
+                <span className="text-xs font-bold text-gray-700">Parc des Machines de l'usine</span>
+                <Btn variant="primary" size="xs" onClick={openAddMachine}>+ Ajouter une machine</Btn>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 text-xs font-bold text-gray-500 uppercase">
+                    <tr>
+                      <th className="text-left px-4 py-3">Code</th>
+                      <th className="text-left px-4 py-3">Nom Machine</th>
+                      <th className="text-left px-4 py-3">Type</th>
+                      <th className="text-left px-4 py-3">Zone / Ligne</th>
+                      <th className="text-left px-4 py-3">Prochaine Maint.</th>
+                      <th className="text-left px-4 py-3">Statut</th>
+                      <th className="text-center px-4 py-3">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {machines.map(m => (
+                      <tr key={m.id} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 font-mono font-bold text-purple-700">{m.code}</td>
+                        <td className="px-4 py-3 font-medium text-gray-900">{m.name}</td>
+                        <td className="px-4 py-3 text-gray-600">{m.type || "—"}</td>
+                        <td className="px-4 py-3 text-gray-600">{m.locationZone || "—"}</td>
+                        <td className="px-4 py-3 text-xs text-gray-600">{m.nextMaintenance ? new Date(m.nextMaintenance).toLocaleDateString() : "Non planifiée"}</td>
+                        <td className="px-4 py-3">
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded-md ${m.status === "operationnel" ? "bg-emerald-50 text-emerald-700" : m.status === "en_panne" ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700"}`}>
+                            {m.status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <button className="text-blue-600 mr-3" onClick={() => openEditMachine(m)} title="Modifier">✏️</button>
+                          <button className="text-red-500" onClick={() => delMachine(m.id)} title="Signaler Panne">⚠️</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
         </>
       )}
 
-      <Modal open={!!panel} onClose={() => setPanel(null)} title={panel?.type === "flotte" ? (panel?.mode === "add" ? "🚚 Nouveau véhicule" : "✏️ Modifier véhicule") : (panel?.mode === "add" ? "👤 Nouveau vendeur" : "✏️ Modifier vendeur")} maxWidth="max-w-2xl">
+      {/* MODALE VENDEUR MODIFIÉE AVEC BRAND & ZONE EXCLUSIFS */}
+      <Modal open={!!panel} onClose={() => setPanel(null)} title={panel?.type === "flotte" ? "🚚 Gestion Véhicule" : panel?.type === "vendor" ? "👤 Gestion Vendeur" : "🏭 Gestion Machine"} maxWidth="max-w-2xl">
         {panel?.type === "vendor" && (
           <div className="space-y-4">
-            <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-800">
-              {panel.mode === "add"
-                ? "Ajoutez un nouveau chauffeur ou vendeur avec sa zone et son véhicule."
-                : "Mettez à jour les informations du vendeur sans quitter l'écran."}
-            </div>
-
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Input label="Nom complet *" value={vForm.name} onChange={e => setVForm(f => ({ ...f, name: e.target.value }))} />
-              <Input label="Code interne" placeholder="V01" value={vForm.code || ""} onChange={e => setVForm(f => ({ ...f, code: e.target.value }))} />
-              <Input label="Téléphone" placeholder="9X XXX XXX" value={vForm.phone || ""} onChange={e => setVForm(f => ({ ...f, phone: e.target.value }))} />
-              <Input label="N° Véhicule *" placeholder="TU-123-TN" value={vForm.vehicle_plate || ""} onChange={e => setVForm(f => ({ ...f, vehicle_plate: e.target.value }))} />
-              <div className="md:col-span-2">
-                <Input label="Zone" placeholder="Ben Arous…" value={vForm.zone || ""} onChange={e => setVForm(f => ({ ...f, zone: e.target.value }))} />
+              
+              <div className="flex flex-col gap-1.5 md:col-span-2">
+                <label className="text-xs font-bold text-gray-700 uppercase tracking-wider">
+                  Associer le Compte Utilisateur (Email) *
+                </label>
+                <select 
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm font-medium bg-blue-50/30 border-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-400 min-h-[40px]" 
+                  value={vForm.user_profile_id || ""} 
+                  onChange={e => handleProfileChange(e.target.value)}
+                >
+                  <option value="">-- Sélectionner le compte de destination --</option>
+                  {userProfiles.map(up => (
+                    <option key={up.id} value={up.id}>{up.full_name} ({up.email})</option>
+                  ))}
+                </select>
               </div>
-            </div>
 
+              <Input label="Nom complet vendeur *" value={vForm.name} onChange={e => setVForm(f => ({ ...f, name: e.target.value }))} />
+              <Input label="Code interne" placeholder="V01" value={vForm.code || ""} onChange={e => setVForm(f => ({ ...f, code: e.target.value }))} />
+              <Input label="Téléphone direct" placeholder="9X XXX XXX" value={vForm.phone || ""} onChange={e => setVForm(f => ({ ...f, phone: e.target.value }))} />
+              
+              {/* SÉLECTEUR DE MARQUE DYNAMIQUE */}
+<div className="flex flex-col gap-1.5">
+  <label className="text-xs font-bold text-gray-700 uppercase tracking-wider">Marque Attribuée *</label>
+  <select 
+    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-amber-50/30 border-amber-200 min-h-[40px]" 
+    value={vForm.brand_id || ""} 
+    onChange={e => setVForm(f => ({ ...f, brand_id: e.target.value }))}
+  >
+    <option value="">-- Choisir une Marque --</option>
+    {brandsList.map(b => (
+      <option key={b.id} value={b.id}>{b.name}</option>
+    ))}
+  </select>
+</div>
+
+{/* SÉLECTEUR DE ZONE DYNAMIQUE */}
+<div className="flex flex-col gap-1.5">
+  <label className="text-xs font-bold text-gray-700 uppercase tracking-wider">Zone Géographique Exclusive *</label>
+  <select 
+    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 min-h-[40px]" 
+    value={vForm.zone_id || ""} 
+    onChange={e => setVForm(f => ({ ...f, zone_id: e.target.value }))}
+  >
+    <option value="">-- Choisir une Zone --</option>
+    {zonesList.map(z => (
+      <option key={z.id} value={z.id}>{z.name}</option>
+    ))}
+  </select>
+  </div>
+
+              <div className="flex flex-col gap-1.5 md:col-span-2">
+  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Véhicule Assigné</label>
+  <select 
+    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 min-h-[40px]" 
+    value={String(vForm.vehicle_id || "")} // <-- AJOUT DE String(...) ICI
+    onChange={e => setVForm(f => ({ ...f, vehicle_id: e.target.value }))}
+  >
+    <option value="">-- Aucun véhicule --</option>
+    {flotte.map(v => (
+      <option key={v.id} value={String(v.id)}>{v.immat} ({v.type || "Standard"})</option>
+    ))}
+  </select>
+</div>
+            </div>
             <div className="flex gap-2">
               <Btn variant="success" className="flex-1" onClick={saveVendor}><Ico n="chk" size={14} stroke="#fff" />Sauvegarder</Btn>
               <Btn variant="secondary" onClick={() => setPanel(null)}>Annuler</Btn>
@@ -286,14 +507,9 @@ export function SettingsView() {
           </div>
         )}
 
+        {/* ... modales flotte et machines inchangées ... */}
         {panel?.type === "flotte" && (
           <div className="space-y-4">
-            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-800">
-              {panel.mode === "add"
-                ? "Ajoutez un véhicule avec son immatriculation, sa capacité et son statut."
-                : "Modifiez les informations du véhicule sans quitter la page."}
-            </div>
-
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Input label="Immatriculation *" placeholder="100TU2026" value={fForm.immat} onChange={e => setFForm(f => ({ ...f, immat: e.target.value }))} />
               <Input label="Type" placeholder="Camionnette / Camion" value={fForm.type} onChange={e => setFForm(f => ({ ...f, type: e.target.value }))} />
@@ -302,16 +518,40 @@ export function SettingsView() {
               <Input label="Commercial" placeholder="Ahmed Belhaj" value={fForm.commercial} onChange={e => setFForm(f => ({ ...f, commercial: e.target.value }))} />
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Statut</label>
-                <select className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 min-h-[40px]" value={fForm.status} onChange={e => setFForm(f => ({ ...f, status: e.target.value }))}>
+                <select className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" value={fForm.status} onChange={e => setFForm(f => ({ ...f, status: e.target.value }))}>
                   <option value="disponible">Disponible</option>
                   <option value="en_route">En route</option>
                   <option value="maintenance">Maintenance</option>
                 </select>
               </div>
             </div>
-
             <div className="flex gap-2">
               <Btn variant="success" className="flex-1" onClick={saveFlotte}><Ico n="chk" size={14} stroke="#fff" />Sauvegarder</Btn>
+              <Btn variant="secondary" onClick={() => setPanel(null)}>Annuler</Btn>
+            </div>
+          </div>
+        )}
+
+        {panel?.type === "machine" && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Input label="Nom de la machine *" placeholder="Conditionneuse A" value={mForm.name} onChange={e => setMForm(f => ({ ...f, name: e.target.value }))} />
+              <Input label="Code Machine Unique *" placeholder="MAC-001" value={mForm.code} onChange={e => setMForm(f => ({ ...f, code: e.target.value }))} disabled={panel.mode === "edit"} />
+              <Input label="Type / Catégorie" placeholder="Remplisseuse, Étiqueteuse..." value={mForm.type} onChange={e => setMForm(f => ({ ...f, type: e.target.value }))} />
+              <Input label="Zone d'implantation" placeholder="Ligne 1, Silo..." value={mForm.locationZone} onChange={e => setMForm(f => ({ ...f, locationZone: e.target.value }))} />
+              <Input label="Dernière Maintenance" type="date" value={mForm.lastMaintenance} onChange={e => setMForm(f => ({ ...f, lastMaintenance: e.target.value }))} />
+              <Input label="Prochaine Maintenance" type="date" value={mForm.nextMaintenance} onChange={e => setMForm(f => ({ ...f, nextMaintenance: e.target.value }))} />
+              <div className="flex flex-col gap-1.5 md:col-span-2">
+                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">État opérationnel</label>
+                <select className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 min-h-[40px]" value={mForm.status} onChange={e => setMForm(f => ({ ...f, status: e.target.value }))}>
+                  <option value="operationnel">Opérationnel</option>
+                  <option value="maintenance">En Maintenance</option>
+                  <option value="en_panne">En Panne</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Btn variant="success" className="flex-1" onClick={saveMachine}><Ico n="chk" size={14} stroke="#fff" />Sauvegarder Machine</Btn>
               <Btn variant="secondary" onClick={() => setPanel(null)}>Annuler</Btn>
             </div>
           </div>

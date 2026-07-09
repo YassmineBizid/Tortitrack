@@ -1,6 +1,8 @@
-import { useState, useEffect } from "react";
-import { Card, Btn, Modal, Input, Select, Textarea, Toast, StatusBadge, Field } from "../components/ui.jsx";
+import { useState, useEffect, useMemo } from "react";
+import { Bdg, Card, Btn, Modal, Input, Select, Textarea, Toast, StatusBadge, Field } from "../components/ui.jsx";
 import { ARTS, exportExcel, MARQUES } from "../data/demoData.js";
+import { sb } from "../supabaseClient.js";
+
 // ─── Constantes & Catalogue ──────────────────────────────────────
 const CANAUX_VENTE   = ["Détail","Grossiste","GMS","HoReCa","Export","Vente directe"];
 const TYPES_PROMO    = [
@@ -43,12 +45,12 @@ const TODAY_P = new Date().toISOString().split("T")[0];
 
 // ─── Données initiales prix ──────────────────────────────────────
 const initPrixArticles = () => [
-  {id:"P1",artId:"1",code:"TC2505",designation:"Tortilla 25cm 5pcs",marque:"MARQUE_A",famille:"Classique",format:"25cm",prixHT:2.850,tva:0.19,prixTTC:3.3915,devise:"DT",canal:"Détail",zone:"National",dateDebut:"2026-01-01",dateFin:null,statut:"actif",valide:true,creePar:"Dir. Commercial",dateCreation:"2026-01-01",validePar:"DG",dateValidation:"2026-01-01",ancienPrix:2.750,evolution:3.64,motif:"Révision annuelle",commentaireValidation:"Approuvé"},
-  {id:"P2",artId:"1",code:"TC2505",designation:"Tortilla 25cm 5pcs",marque:"MARQUE_A",famille:"Classique",format:"25cm",prixHT:2.650,tva:0.19,prixTTC:3.1535,devise:"DT",canal:"Grossiste",zone:"National",dateDebut:"2026-01-01",dateFin:null,statut:"actif",valide:true,creePar:"Dir. Commercial",dateCreation:"2026-01-01",validePar:"DG",dateValidation:"2026-01-01",ancienPrix:2.550,evolution:3.92,motif:"Révision annuelle",commentaireValidation:"Approuvé"},
-  {id:"P3",artId:"2",code:"TC2510",designation:"Tortilla 25cm 10pcs",marque:"MARQUE_A",famille:"Classique",format:"25cm",prixHT:4.900,tva:0.19,prixTTC:5.831,devise:"DT",canal:"Détail",zone:"National",dateDebut:"2026-01-01",dateFin:null,statut:"actif",valide:true,creePar:"Dir. Commercial",dateCreation:"2026-01-01",validePar:"DG",dateValidation:"2026-01-01",ancienPrix:4.700,evolution:4.26,motif:"Révision annuelle",commentaireValidation:"Approuvé"},
-  {id:"P4",artId:"3",code:"TC3005",designation:"Tortilla 30cm 5pcs",marque:"MARQUE_A",famille:"Classique",format:"30cm",prixHT:3.200,tva:0.19,prixTTC:3.808,devise:"DT",canal:"Détail",zone:"National",dateDebut:"2026-01-01",dateFin:null,statut:"actif",valide:true,creePar:"Dir. Commercial",dateCreation:"2026-01-01",validePar:"DG",dateValidation:"2026-01-01",ancienPrix:3.100,evolution:3.23,motif:"Révision annuelle",commentaireValidation:"Approuvé"},
-  {id:"P5",artId:"4",code:"TC3010",designation:"Tortilla 30cm 10pcs",marque:"MARQUE_A",famille:"Classique",format:"30cm",prixHT:5.500,tva:0.19,prixTTC:6.545,devise:"DT",canal:"Détail",zone:"National",dateDebut:"2026-01-01",dateFin:null,statut:"actif",valide:true,creePar:"Dir. Commercial",dateCreation:"2026-01-01",validePar:"DG",dateValidation:"2026-01-01",ancienPrix:5.300,evolution:3.77,motif:"Révision annuelle",commentaireValidation:"Approuvé"},
-  {id:"P6",artId:"4",code:"TC3010",designation:"Tortilla 30cm 10pcs",marque:"MARQUE_A",famille:"Classique",format:"30cm",prixHT:4.900,tva:0.19,prixTTC:5.831,devise:"DT",canal:"GMS",zone:"National",dateDebut:"2026-01-01",dateFin:null,statut:"actif",valide:true,creePar:"Dir. Commercial",dateCreation:"2026-01-01",validePar:"DG",dateValidation:"2026-01-01",ancienPrix:4.700,evolution:4.26,motif:"Tarif GMS négocié",commentaireValidation:"Approuvé"},
+  {id:"P1",artId:"1",code:"TC2505",designation:"Tortilla 25cm 5pcs",marque:"MARQUE_A",format:"25cm",prixHT:2.850,tva:0.19,prixTTC:3.3915,devise:"DT",canal:"Détail",zone:"National",dateDebut:"2026-01-01",dateFin:null,statut:"actif",valide:true,creePar:"Dir. Commercial",dateCreation:"2026-01-01",validePar:"DG",dateValidation:"2026-01-01",ancienPrix:2.750,evolution:3.64,motif:"Révision annuelle",commentaireValidation:"Approuvé"},
+  {id:"P2",artId:"1",code:"TC2505",designation:"Tortilla 25cm 5pcs",marque:"MARQUE_A",format:"25cm",prixHT:2.650,tva:0.19,prixTTC:3.1535,devise:"DT",canal:"Grossiste",zone:"National",dateDebut:"2026-01-01",dateFin:null,statut:"actif",valide:true,creePar:"Dir. Commercial",dateCreation:"2026-01-01",validePar:"DG",dateValidation:"2026-01-01",ancienPrix:2.550,evolution:3.92,motif:"Révision annuelle",commentaireValidation:"Approuvé"},
+  {id:"P3",artId:"2",code:"TC2510",designation:"Tortilla 25cm 10pcs",marque:"MARQUE_A",format:"25cm",prixHT:4.900,tva:0.19,prixTTC:5.831,devise:"DT",canal:"Détail",zone:"National",dateDebut:"2026-01-01",dateFin:null,statut:"actif",valide:true,creePar:"Dir. Commercial",dateCreation:"2026-01-01",validePar:"DG",dateValidation:"2026-01-01",ancienPrix:4.700,evolution:4.26,motif:"Révision annuelle",commentaireValidation:"Approuvé"},
+  {id:"P4",artId:"3",code:"TC3005",designation:"Tortilla 30cm 5pcs",marque:"MARQUE_A",format:"30cm",prixHT:3.200,tva:0.19,prixTTC:3.808,devise:"DT",canal:"Détail",zone:"National",dateDebut:"2026-01-01",dateFin:null,statut:"actif",valide:true,creePar:"Dir. Commercial",dateCreation:"2026-01-01",validePar:"DG",dateValidation:"2026-01-01",ancienPrix:3.100,evolution:3.23,motif:"Révision annuelle",commentaireValidation:"Approuvé"},
+  {id:"P5",artId:"4",code:"TC3010",designation:"Tortilla 30cm 10pcs",marque:"MARQUE_A",format:"30cm",prixHT:5.500,tva:0.19,prixTTC:6.545,devise:"DT",canal:"Détail",zone:"National",dateDebut:"2026-01-01",dateFin:null,statut:"actif",valide:true,creePar:"Dir. Commercial",dateCreation:"2026-01-01",validePar:"DG",dateValidation:"2026-01-01",ancienPrix:5.300,evolution:3.77,motif:"Révision annuelle",commentaireValidation:"Approuvé"},
+  {id:"P6",artId:"4",code:"TC3010",designation:"Tortilla 30cm 10pcs",marque:"MARQUE_A",format:"30cm",prixHT:4.900,tva:0.19,prixTTC:5.831,devise:"DT",canal:"GMS",zone:"National",dateDebut:"2026-01-01",dateFin:null,statut:"actif",valide:true,creePar:"Dir. Commercial",dateCreation:"2026-01-01",validePar:"DG",dateValidation:"2026-01-01",ancienPrix:4.700,evolution:4.26,motif:"Tarif GMS négocié",commentaireValidation:"Approuvé"},
 ];
 
 const initPromotions = () => [
@@ -109,18 +111,18 @@ function PromoBadge({promo}) {
   );
 }
 
-// ═══════════════════════════════════════════════════════════════
-// LISTE DES PRIX & PROMOTIONS — Page principale
-// ═══════════════════════════════════════════════════════════════
-export default function ListePrixPage({user, prixArticles, setPrixArticles, promotions, setPromotions, addAudit}) {
+export default function ListePrixPage({user, arts =[], prixArticles, setPrixArticles, promotions, setPromotions, addAudit}) {
   const [tab,       setTab]       = useState("prix");
   const [filterCan, setFilterCan] = useState("");
-  const [filterSt,  setFilterSt]  = useState("actif");
+  const [filterSt,  setFilterSt]  = useState("");
   const [showNewPx, setShowNewPx] = useState(false);
   const [showNewPr, setShowNewPr] = useState(false);
   const [selected,  setSelected]  = useState(null);
   const [motifRef,  setMotifRef]  = useState("");
   const [toast,     setToast]     = useState(null);
+  const [loading,   setLoading]   = useState(false);
+
+  const [brands, setBrands] = useState([]);
 
   const roles = user.roles;
   const isDG       = roles.includes("dg");
@@ -129,108 +131,330 @@ export default function ListePrixPage({user, prixArticles, setPrixArticles, prom
   const isFinance  = isDG || roles.includes("finance");
   const isCom      = roles.includes("commercial");
 
-  // ── Sécurité : rôles usine INTERDITS ──
+
+  useEffect(() => {
+    async function fetchBrands() {
+      try {
+        const { data, error } = await sb.from("brands").select("id, name").order("name");
+        if (error) throw error;
+        if (data) setBrands(data);
+      } catch (err) {
+        console.error("Erreur lors de la récupération des marques:", err);
+      }
+    }
+    fetchBrands();
+  }, []);
+
+  // Charger les prix et les promotions au montage du composant
+  useEffect(() => {
+    async function initPage() {
+      setLoading(true);
+      await Promise.all([fetchPrixArticles(), fetchPromotions()]);
+      setLoading(false);
+    }
+    initPage();
+  }, []);
+
+  // ── CHARGEMENT DES PRIX (SUPABASE) ────────────────────────────
+  async function fetchPrixArticles() {
+    const { data, error } = await sb
+      .from("prix_articles")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      setToast({ msg: "❌ Erreur de chargement des prix", color: "#dc2626" });
+    } else if (data) {
+      // Mapping pour correspondre aux clés camelCase utilisées dans votre UI
+      const formattedPrix = data.map(p => ({
+        id: p.id,
+        artId: p.art_id,
+        code: p.code,
+        designation: p.designation,
+        marque: p.marque,
+        format: p.format,
+        prixHT: p.prix_ht ? parseFloat(p.prix_ht) : 0,
+        tva: p.tva ? (parseFloat(p.tva) > 1 ? parseFloat(p.tva)/100 : parseFloat(p.tva)) : TVA_RATE,
+        prixTTC: p.prix_ttc ? parseFloat(p.prix_ttc) : 0,
+        devise: p.devise || "DT",
+        canal: p.canal,
+        zone: p.zone,
+        dateDebut: p.date_debut,
+        dateFin: p.date_fin,
+        statut: p.statut,
+        valide: p.valide,
+        creePar: p.cree_par,
+        dateCreation: p.created_at,
+        validePar: p.valide_par,
+        dateValidation: p.date_validation,
+        ancienPrix: p.ancien_prix ? parseFloat(p.ancien_prix) : 0,
+        evolution: p.evolution ? parseFloat(p.evolution) : 0,
+        motif: p.motif,
+        commentaireValidation: p.commentaire_validation || ""
+      }));
+      setPrixArticles(formattedPrix);
+    }
+  }
+
+  // ── CHARGEMENT DES PROMOTIONS (SUPABASE) ──────────────────────
+  async function fetchPromotions() {
+    const { data, error } = await sb
+      .from("promotions")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      setToast({ msg: "❌ Erreur de chargement des promotions", color: "#dc2626" });
+    } else if (data) {
+      const formattedPromos = data.map(p => ({
+        id: p.id,
+        nom: p.nom,
+        type: p.type,
+        artIds: p.art_ids || [],
+        canaux: p.canaux || [],
+        remisePct: p.remise_pct ? parseFloat(p.remise_pct) / 100 : 0, 
+        prixPromo: p.prix_promo ? parseFloat(p.prix_promo) : 0,
+        qteMin: p.qte_min,
+        dateDebut: p.date_debut,
+        dateFin: p.date_fin,
+        statut: p.statut,
+        creePar: p.cree_par,
+        validePar: p.valide_par,
+        motif: p.motif,
+        caEstime: p.ca_estime ? parseFloat(p.ca_estime) : 0, 
+        budgetPromo: p.budget_promo ? parseFloat(p.budget_promo) : 0
+      }));
+      setPromotions(formattedPromos);
+    }
+  }
+
+  const validerPromo = async (id) => {
+    const { error } = await sb
+      .from("promotions")
+      .update({ statut: "active", valide_par: user.nom, date_debut: TODAY_P }) 
+      .eq("id", id);
+
+    if (error) {
+      setToast({ msg: "❌ Erreur lors de la validation", color: "#dc2626" });
+      return;
+    }
+
+    setPromotions(ps => ps.map(p => p.id === id ? { ...p, statut: "active", validePar: user.nom } : p));
+    addAudit(user.nom, roles[0], "VALIDER_PROMO", "promotions", promotions.find(p => p.id === id)?.nom, "Promotion validée → active");
+    setToast({ msg: "✅ Promotion validée et active", color: "#059669" });
+    setSelected(null);
+  };
+
+  const refuserPromo = async (id) => {
+    if (!motifRef.trim()) { alert("Motif obligatoire."); return; }
+
+    const { error } = await sb
+      .from("promotions")
+      .update({ statut: "refuse", motif: motifRef })
+      .eq("id", id);
+
+    if (error) {
+      setToast({ msg: "❌ Erreur lors du refus", color: "#dc2626" });
+      return;
+    }
+
+    setPromotions(ps => ps.map(p => p.id === id ? { ...p, statut: "refuse", motif: motifRef } : p));
+    addAudit(user.nom, roles[0], "REFUSER_PROMO", "promotions", promotions.find(p => p.id === id)?.nom, `Refusée: ${motifRef}`);
+    setToast({ msg: "✗ Promotion refusée", color: "#dc2626" });
+    setSelected(null); setMotifRef("");
+  };
+
+  const suspendrePromo = async (id) => {
+    const { error } = await sb
+      .from("promotions")
+      .update({ statut: "suspendue" })
+      .eq("id", id);
+
+    if (error) {
+      setToast({ msg: "❌ Erreur de suspension", color: "#dc2626" });
+      return;
+    }
+
+    setPromotions(ps => ps.map(p => p.id === id ? { ...p, statut: "suspendue" } : p));
+    addAudit(user.nom, roles[0], "SUSPENDRE_PROMO", "promotions", promotions.find(p => p.id === id)?.nom, "Suspension DG");
+    setToast({ msg: "⏸ Promotion suspendue", color: "#d97706" });
+  };
+
+  const addPromo = async (form) => {
+    const dbPayload = {
+      nom: form.nom,
+      type: form.type,
+      art_ids: [form.artId].filter(Boolean), 
+      canaux: form.canaux || [],             
+      remise_pct: form.remisePct ? parseFloat(form.remisePct) : null, 
+      prix_promo: form.prixPromo ? parseFloat(form.prixPromo) : null,
+      qte_min: parseInt(form.qteMin) || 1,
+      date_debut: form.dateDebut,
+      date_fin: form.dateFin,
+      statut: "soumis",
+      cree_par: user.nom,
+      motif: form.motif
+    };
+
+    const { data, error } = await sb
+      .from("promotions")
+      .insert([dbPayload])
+      .select(); 
+
+    if (error) {
+      setToast({ msg: `❌ Échec de la création: ${error.message}`, color: "#dc2626" });
+      return;
+    }
+
+    if (data && data[0]) {
+      const p = data[0];
+      const newLocalPromo = {
+        id: p.id, 
+        nom: p.nom,
+        type: p.type,
+        artIds: p.art_ids,
+        canaux: p.canaux,
+        remisePct: p.remise_pct ? p.remise_pct / 100 : 0,
+        prixPromo: p.prix_promo ? parseFloat(p.prix_promo) : 0,
+        qteMin: p.qte_min,
+        dateDebut: p.date_debut,
+        dateFin: p.date_fin,
+        statut: p.statut,
+        creePar: p.cree_par,
+        caEstime: parseFloat(form.caEstime) || 0
+      };
+
+      setPromotions(ps => [newLocalPromo, ...ps]);
+      addAudit(user.nom, roles[0], "CREATE_PROMO", "promotions", form.nom, `Promotion ${form.type} soumise · Remise: ${form.remisePct}%`);
+      setToast({ msg: "✅ Promotion soumise au DG pour validation", color: "#7c3aed" });
+      setShowNewPr(false);
+    }
+  };
+
+  // Restes de vos filtres de droits usine
   const ROLES_USINE = ["chef_usine","operator","quality","acheteur","logistics","chef_rh","agent_rh","employe","resp_direct"];
   if (roles.every(r=>ROLES_USINE.includes(r))) {
     return (
       <div className="flex flex-col items-center justify-center py-24 space-y-3">
         <div className="text-6xl">🔒</div>
         <h2 className="text-xl font-bold text-gray-700">Accès non autorisé</h2>
-        <p className="text-sm text-gray-500 text-center max-w-sm">Les informations tarifaires et les promotions sont réservées aux équipes commerciales et à la direction.</p>
       </div>
     );
   }
 
+  // Filtrages locaux
   const prixFiltered = prixArticles.filter(p=>{
-    if(filterCan&&p.canal!==filterCan)return false;
-    if(filterSt&&p.statut!==filterSt)return false;
+    if(filterCan && p.canal !== filterCan) return false;
+    if(filterSt && p.statut !== filterSt) return false;
     return true;
   });
   const promoActives = promotions.filter(p=>p.statut==="active");
   const promoSoumises= promotions.filter(p=>p.statut==="soumis");
   const prixSoumis   = prixArticles.filter(p=>p.statut==="soumis");
 
-  // ── Actions DG ────────────────────────────────────────────────
-  const validerPrix = (id) => {
+  // ── Actions DG Prix ───────────────────────────────────────────
+  const validerPrix = async (id) => {
+    const { error } = await sb
+      .from("prix_articles")
+      .update({ 
+        statut: "actif", 
+        valide: true, 
+        valide_par: user.nom, 
+        date_validation: TODAY_P, 
+        commentaire_validation: motifRef || "Validé" 
+      })
+      .eq("id", id);
+
+    if (error) {
+      setToast({ msg: "❌ Erreur de validation de prix", color: "#dc2626" });
+      return;
+    }
+
     setPrixArticles(ps=>ps.map(p=>p.id===id?{...p,statut:"actif",valide:true,validePar:user.nom,dateValidation:TODAY_P,commentaireValidation:motifRef||"Validé"}:p));
     addNotif&&addNotif("push","Dir. Commercial",`Prix ${prixArticles.find(p=>p.id===id)?.code} validé par DG — Actif immédiatement`,"validation_pending",id);
     addAudit(user.nom,roles[0],"VALIDER_PRIX","prix_articles",prixArticles.find(p=>p.id===id)?.code,`Validé par DG · ${motifRef}`);
     setToast({msg:"✅ Prix validé et actif immédiatement",color:"#059669"});
     setSelected(null);setMotifRef("");
   };
-  const refuserPrix = (id) => {
+
+  const refuserPrix = async (id) => {
     if(!motifRef.trim()){alert("Motif de refus obligatoire.");return;}
+
+    const { error } = await sb
+      .from("prix_articles")
+      .update({ statut: "refuse", commentaire_validation: motifRef })
+      .eq("id", id);
+
+    if (error) {
+      setToast({ msg: "❌ Erreur lors du refus de prix", color: "#dc2626" });
+      return;
+    }
+
     setPrixArticles(ps=>ps.map(p=>p.id===id?{...p,statut:"refuse",commentaireValidation:motifRef}:p));
     addAudit(user.nom,roles[0],"REFUSER_PRIX","prix_articles",prixArticles.find(p=>p.id===id)?.code,`Refusé: ${motifRef}`);
     setToast({msg:"✗ Prix refusé — renvoyé au Dir. Commercial",color:"#dc2626"});
     setSelected(null);setMotifRef("");
   };
-  const validerPromo = (id) => {
-    setPromotions(ps=>ps.map(p=>p.id===id?{...p,statut:"active",validePar:user.nom,dateValidation:TODAY_P}:p));
-    addAudit(user.nom,roles[0],"VALIDER_PROMO","promotions",promotions.find(p=>p.id===id)?.nom,"Promotion validée → active");
-    setToast({msg:"✅ Promotion validée et active",color:"#059669"});
-    setSelected(null);
-  };
-  const refuserPromo = (id) => {
-    if(!motifRef.trim()){alert("Motif obligatoire.");return;}
-    setPromotions(ps=>ps.map(p=>p.id===id?{...p,statut:"refuse",commentaire:motifRef}:p));
-    addAudit(user.nom,roles[0],"REFUSER_PROMO","promotions",promotions.find(p=>p.id===id)?.nom,`Refusée: ${motifRef}`);
-    setToast({msg:"✗ Promotion refusée",color:"#dc2626"});
-    setSelected(null);setMotifRef("");
-  };
-  const suspendrePromo = (id) => {
-    setPromotions(ps=>ps.map(p=>p.id===id?{...p,statut:"suspendue"}:p));
-    addAudit(user.nom,roles[0],"SUSPENDRE_PROMO","promotions",promotions.find(p=>p.id===id)?.nom,"Suspension DG");
-    setToast({msg:"⏸ Promotion suspendue",color:"#d97706"});
-  };
-
-  const addPrix = (form) => {
-    const art = ARTS.find(a=>a.id===form.artId);
+  
+  const addPrix = async (form) => {
+    const art = arts.find(a=>String(a.id)===String(form.artId)) || ARTS.find(a=>a.id===form.artId);
     const ancienPrix = getPrixActif(prixArticles,form.artId,form.canal)?.prixHT||0;
     const prixHT  = parseFloat(form.prixHT)||0;
     const evolution= ancienPrix>0?+((prixHT-ancienPrix)/ancienPrix*100).toFixed(2):0;
-    const np = {
-      id:`P${Date.now()}`,artId:form.artId,code:art?.code,designation:art?.name,
-      marque:MARQUES.find(m=>m.id===art?.marqueId)?.code||"",
-      famille:form.famille||"",format:form.format||"",
-      prixHT,tva:TVA_RATE,prixTTC:+(prixHT*(1+TVA_RATE)).toFixed(3),devise:"DT",
-      canal:form.canal,zone:form.zone||"National",
-      dateDebut:form.dateDebut||TODAY_P,dateFin:form.dateFin||null,
-      statut:"soumis",valide:false,creePar:user.nom,dateCreation:TODAY_P,
-      validePar:null,dateValidation:null,ancienPrix,evolution,
-      motif:form.motif,commentaireValidation:""
-    };
-    // Marquer l'ancien prix comme "remplace" si applicable
-    if(ancienPrix>0) {
-      setPrixArticles(ps=>[np,...ps.map(p=>p.artId===form.artId&&p.canal===form.canal&&p.statut==="actif"?{...p,statut:"remplace"}:p)]);
-    } else {
-      setPrixArticles(ps=>[np,...ps]);
-    }
-    addAudit(user.nom,roles[0],"CREATE_PRIX","prix_articles",art?.code,`Nouveau prix: ${prixHT} DT (${form.canal}) · Ancien: ${ancienPrix} DT · Evolution: ${evolution}%`);
-    setToast({msg:"✅ Nouveau prix soumis au DG pour validation",color:"#7c3aed"});
-    setShowNewPx(false);
-  };
 
-  const addPromo = (form) => {
-    const np = {
-      id:`PROMO${Date.now()}`,nom:form.nom,type:form.type,
-      artIds:[form.artId].filter(Boolean),marques:[],clients:[],zones:[],
-      canaux:form.canaux||[],
-      prixNormal:parseFloat(form.prixNormal)||0,
-      remisePct:parseFloat(form.remisePct)/100||0,
-      remiseMt:parseFloat(form.remiseMt)||0,
-      prixPromo:parseFloat(form.prixPromo)||0,
-      qteMin:parseInt(form.qteMin)||1,qteMax:form.qteMax?parseInt(form.qteMax):null,
-      dateDebut:form.dateDebut,dateFin:form.dateFin,
-      budgetPromo:parseFloat(form.budgetPromo)||0,
-      objectif:form.objectif,motif:form.motif,
-      caEstime:parseFloat(form.caEstime)||0,margeEstimee:null,
-      creePar:user.nom,statut:"soumis",validePar:null,dateValidation:null,commentaire:""
+    const dbPayload = {
+      art_id: form.artId,
+      code: art?.code || art?.ref,
+      designation: art?.name,
+      marque: MARQUES.find(m=>m.id===art?.marqueId)?.code || art?.brand_id || "",
+      format: form.format||"",
+      prix_ht: prixHT,
+      tva: TVA_RATE,
+      prix_ttc: +(prixHT*(1+TVA_RATE)).toFixed(3),
+      canal: form.canal,
+      zone: form.zone||"National",
+      date_debut: form.dateDebut||TODAY_P,
+      date_fin: form.dateFin||null,
+      statut: "soumis",
+      valide: false,
+      cree_par: user.nom,
+      created_at: TODAY_P,
+      ancien_prix: ancienPrix,
+      evolution: evolution,
+      motif: form.motif
     };
-    setPromotions(ps=>[np,...ps]);
-    addAudit(user.nom,roles[0],"CREATE_PROMO","promotions",form.nom,`Promotion ${form.type} soumise · Remise: ${form.remisePct}%`);
-    setToast({msg:"✅ Promotion soumise au DG pour validation",color:"#7c3aed"});
-    setShowNewPr(false);
+
+    const { data, error } = await sb
+      .from("prix_articles")
+      .insert([dbPayload])
+      .select();
+
+    if (error) {
+      setToast({ msg: `❌ Échec de l'insertion du prix: ${error.message}`, color: "#dc2626" });
+      return;
+    }
+
+    if (data && data[0]) {
+      const p = data[0];
+      const np = {
+        id: p.id, artId: p.art_id, code: p.code, designation: p.designation,
+        marque: p.marque, format: p.format,
+        prixHT: parseFloat(p.prix_ht), tva: parseFloat(p.tva), prixTTC: parseFloat(p.prix_ttc), devise: p.devise,
+        canal: p.canal, zone: p.zone, dateDebut: p.date_debut, dateFin: p.date_fin,
+        statut: p.statut, valide: p.valide, creePar: p.cree_par, dateCreation: p.created_at,
+        ancienPrix: parseFloat(p.ancien_prix), evolution: parseFloat(p.evolution), motif: p.motif
+      };
+
+      if(ancienPrix>0) {
+        setPrixArticles(ps=>[np,...ps.map(x=>x.artId===form.artId&&x.canal===form.canal&&x.statut==="actif"?{...x,statut:"remplace"}:x)]);
+      } else {
+        setPrixArticles(ps=>[np,...ps]);
+      }
+
+      addAudit(user.nom,roles[0],"CREATE_PRIX","prix_articles",art?.code,`Nouveau prix: ${prixHT} DT (${form.canal}) · Ancien: ${ancienPrix} DT · Evolution: ${evolution}%`);
+      setToast({msg:"✅ Nouveau prix soumis au DG pour validation",color:"#7c3aed"});
+      setShowNewPx(false);
+    }
   };
 
   const TABS = [
@@ -244,10 +468,16 @@ export default function ListePrixPage({user, prixArticles, setPrixArticles, prom
     <div className="space-y-4">
       {toast&&<Toast message={toast.msg} color={toast.color} onDone={()=>setToast(null)}/>}
 
+      {loading && (
+        <div className="text-center py-4 text-xs font-semibold text-blue-600 animate-pulse">
+          ⏳ Synchronisation avec la base de données...
+        </div>
+      )}
+
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h1 className="text-xl font-bold text-gray-900">💰 Liste des Prix & Promotions</h1>
-          <p className="text-xs text-gray-400 mt-0.5">Prix officiels · Promotions · Validation DG · Historique · IA</p>
+          <p className="text-xs text-gray-400 mt-0.5">Prix officiels · Promotions · Validation DG · Historique</p>
         </div>
         <div className="flex gap-2">
           <Btn variant="secondary" size="sm" onClick={()=>exportExcel(prixArticles,[{key:"code",label:"Code"},{key:"designation",label:"Article"},{key:"canal",label:"Canal"},{key:"prixHT",label:"Prix HT",format:"currency"},{key:"prixTTC",label:"Prix TTC",format:"currency"},{key:"statut",label:"Statut"},{key:"dateDebut",label:"Validité depuis"},{key:"evolution",label:"Évol %",format:"number"}],"liste_prix")}>⬇ Excel</Btn>
@@ -273,7 +503,7 @@ export default function ListePrixPage({user, prixArticles, setPrixArticles, prom
 
       {/* KPI résumé */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {[["Prix actifs",prixArticles.filter(p=>p.statut==="actif").length,"#059669"],["Promotions actives",promoActives.length,"#3b82f6"],["En attente DG",prixSoumis.length+promoSoumises.length,"#d97706"],["CA promo estimé",promoActives.reduce((s,p)=>s+p.caEstime,0).toFixed(0)+" DT","#7c3aed"]].map(([l,v,c])=>(
+        {[["Prix actifs",prixArticles.filter(p=>p.statut==="actif").length,"#059669"],["Promotions actives",promoActives.length,"#3b82f6"],["En attente DG",prixSoumis.length+promoSoumises.length,"#d97706"],["CA promo estimé",promoActives.reduce((s,p)=>s+(p.caEstime||0),0).toFixed(0)+" DT","#7c3aed"]].map(([l,v,c])=>(
           <Card key={l} className="p-3 text-center"><div className="text-xs text-gray-400 mb-1">{l}</div><div className="font-black text-lg" style={{color:c}}>{v}</div></Card>
         ))}
       </div>
@@ -303,7 +533,24 @@ export default function ListePrixPage({user, prixArticles, setPrixArticles, prom
           <thead><tr className="border-b bg-gray-50">{["Article","Canal","Prix HT","TVA","Prix TTC","Ancien prix","Évol. %","Validité","Statut","Actions"].map(h=><th key={h} className="px-3 py-2.5 text-left font-bold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>)}</tr></thead>
           <tbody>{prixFiltered.map((p,i)=>(
             <tr key={p.id} className={`border-b hover:bg-gray-50/80 ${i%2?"bg-gray-50/30":""}${p.statut==="soumis"?" border-l-4 border-l-amber-400":""}`}>
-              <td className="px-3 py-3"><div className="font-bold text-blue-700">{p.code}</div><div className="text-gray-400 text-xs">{p.designation}</div></td>
+              <td className="px-3 py-3">
+  {(() => {
+    // 🔍 On cherche l'article correspondant dans 'arts' ou 'ARTS' via l'identifiant (p.artId ou p.articleId)
+    const currentArt = arts.find(a => String(a.id) === String(p.artId || p.articleId)) 
+                    || ARTS.find(a => String(a.id) === String(p.artId || p.articleId));
+    
+    return (
+      <>
+        <div className="font-bold text-blue-700">
+          {currentArt ? (currentArt.code || currentArt.ref) : (p.code || "Code inconnu")}
+        </div>
+        <div className="text-gray-400 text-xs">
+          {currentArt ? (currentArt.name || currentArt.libelle || currentArt.designation) : (p.designation || "—")}
+        </div>
+      </>
+    );
+  })()}
+</td>
               <td className="px-3 py-3"><Bdg color="blue">{p.canal}</Bdg></td>
               <td className="px-3 py-3 font-bold">{p.prixHT.toFixed(3)}</td>
               <td className="px-3 py-3 text-gray-500">{Math.round(p.tva*100)}%</td>
@@ -330,7 +577,7 @@ export default function ListePrixPage({user, prixArticles, setPrixArticles, prom
             return <tr key={p.id} className={`border-b hover:bg-gray-50/80 ${i%2?"bg-gray-50/30":""}${p.statut==="soumis"?" border-l-4 border-l-amber-400":""}`}>
               <td className="px-3 py-3"><div className="font-bold">{p.nom}</div><div className="text-xs text-gray-400">{p.creePar}</div></td>
               <td className="px-3 py-3"><Bdg color="purple">{TYPES_PROMO.find(t=>t.k===p.type)?.l||p.type}</Bdg></td>
-              <td className="px-3 py-3">{p.artIds.map(id=>ARTS.find(a=>a.id===id)?.code).join(", ")}</td>
+              <td className="px-3 py-3">{p.artIds.map(id=>(arts.find(a=>String(a.id)===String(id))||ARTS.find(a=>a.id===id))?.code||id).join(", ")}</td>
               <td className="px-3 py-3 font-bold text-red-600">-{Math.round(p.remisePct*100)}%</td>
               <td className="px-3 py-3 font-black text-emerald-700">{p.prixPromo.toFixed(3)} DT</td>
               <td className="px-3 py-3">{(p.canaux||[]).slice(0,2).map(c=><Bdg key={c} color="blue" className="mr-1">{c}</Bdg>)}</td>
@@ -338,9 +585,9 @@ export default function ListePrixPage({user, prixArticles, setPrixArticles, prom
               <td className="px-3 py-3 font-bold text-purple-700">{p.caEstime.toLocaleString()} DT</td>
               <td className="px-3 py-3"><PxBadge statut={p.statut} type="promo"/></td>
               <td className="px-3 py-3"><div className="flex gap-1 flex-wrap">
-                <Btn variant="secondary" size="xs" onClick={()=>setSelected({type:"promo",...p})}>Voir</Btn>
+                <Btn variant="secondary" size="xs" onClick={()=>setSelected({ ...p, type2: p.type, type: "promo" })}>Voir</Btn>
                 {isDG&&p.statut==="soumis"&&<Btn variant="success" size="xs" onClick={()=>validerPromo(p.id)}>✓</Btn>}
-                {isDG&&p.statut==="soumis"&&<Btn variant="danger" size="xs" onClick={()=>setSelected({type:"promo_refuse",...p})}>✗</Btn>}
+                {isDG&&p.statut==="soumis"&&<Btn variant="danger" size="xs" onClick={()=>setSelected({ ...p, type2: p.type, type: "promo_refuse" })} >✗</Btn>}
                 {isDG&&p.statut==="active"&&<Btn variant="warning" size="xs" onClick={()=>suspendrePromo(p.id)}>⏸</Btn>}
               </div></td>
             </tr>;
@@ -353,7 +600,7 @@ export default function ListePrixPage({user, prixArticles, setPrixArticles, prom
         <Card className="p-4">
           <div className="text-xs font-bold text-gray-500 uppercase mb-3">Historique complet des changements de prix</div>
           <div className="space-y-2">
-            {prixArticles.filter(p=>p.ancienPrix>0).map(p=>(
+            {prixArticles.filter(p=>p.ancienPrix>0).map(p => (
               <div key={p.id} className={`flex items-center gap-4 p-3 rounded-xl border text-xs ${p.statut==="actif"?"bg-emerald-50 border-emerald-200":p.statut==="refuse"?"bg-red-50 border-red-200":"bg-gray-50 border-gray-100"}`}>
                 <div className="flex-1"><div className="font-bold">{p.code} — {p.canal}</div><div className="text-gray-500">{p.motif}</div></div>
                 <div className="flex items-center gap-2"><span className="line-through text-gray-400">{p.ancienPrix?.toFixed(3)}</span><span className="text-lg text-gray-400">→</span><span className="font-black text-blue-700">{p.prixHT.toFixed(3)} DT</span><span className={`px-2 py-0.5 rounded-full text-xs font-bold text-white ${(p.evolution||0)>=0?"bg-emerald-500":"bg-red-500"}`}>{(p.evolution||0)>=0?"+":""}{p.evolution?.toFixed(1)}%</span></div>
@@ -367,13 +614,13 @@ export default function ListePrixPage({user, prixArticles, setPrixArticles, prom
       {/* ── ONGLET KPI ── */}
       {tab==="kpi"&&<KPIPrixPromo prixArticles={prixArticles} promotions={promotions} user={user}/>}
 
-      {/* Modal détail prix */}
+      {/* Modals de Détails & Formulaires inchangés */}
       <Modal open={!!selected} onClose={()=>{setSelected(null);setMotifRef("");}} title={selected?.type==="prix"?`Prix — ${selected?.code} (${selected?.canal})`:`Promotion — ${selected?.nom}`} maxWidth="max-w-2xl">
         {selected&&(
           <div className="space-y-4">
             {selected.type==="prix"&&<div className="space-y-4">
               <div className="grid grid-cols-2 gap-3 text-xs">
-                {[["Article",selected.code],["Désignation",selected.designation],["Canal",selected.canal],["Prix HT",`${selected.prixHT?.toFixed(3)} DT`],["TVA",`${Math.round(selected.tva*100)}%`],["Prix TTC",`${selected.prixTTC?.toFixed(3)} DT`],["Ancien prix",`${selected.ancienPrix?.toFixed(3)||"—"} DT`],["Évolution",`${selected.evolution>=0?"+":""}${selected.evolution?.toFixed(1)}%`],["Créé par",selected.creePar],["Date",selected.dateCreation],["Motif changement",selected.motif],["Commentaire",selected.commentaireValidation||"—"]].map(([l,v])=><div key={l}><div className="font-bold text-gray-400 uppercase">{l}</div><div className="font-semibold mt-0.5">{v}</div></div>)}
+                {[["Article",selected.code],["Désignation",selected.designation],["Canal",selected.canal],["Prix HT",`${selected.prixHT?.toFixed(3)} DT`],["TVA",`${Math.round(selected.tva*100)}%`],["Prix TTC",`${selected.prixTTC?.toFixed(3)} DT`],["Ancien prix", selected.ancienPrix ? `${selected.ancienPrix.toFixed(3)} DT` : "—"],["Évolution",`${selected.evolution>=0?"+":""}${selected.evolution?.toFixed(1)}%`],["Créé par",selected.creePar],["Date",selected.dateCreation],["Motif changement",selected.motif],["Commentaire",selected.commentaireValidation||"—"]].map(([l,v])=><div key={l}><div className="font-bold text-gray-400 uppercase">{l}</div><div className="font-semibold mt-0.5">{v}</div></div>)}
               </div>
               {isDG&&selected.statut==="soumis"&&<div className="space-y-3 border-t border-gray-100 pt-3">
                 <Input label="Commentaire / Motif validation *" value={motifRef} onChange={e=>setMotifRef(e.target.value)} placeholder="Approuvé · ou motif de refus..."/>
@@ -386,14 +633,7 @@ export default function ListePrixPage({user, prixArticles, setPrixArticles, prom
 
             {(selected.type==="promo"||selected.type==="promo_refuse")&&<div className="space-y-4">
               <div className="grid grid-cols-2 gap-3 text-xs">
-                {[["Type",TYPES_PROMO.find(t=>t.k===selected.type2||t.k===selected.type)?.l||selected.type],["Prix normal",`${selected.prixNormal?.toFixed(3)} DT`],["Remise",`-${Math.round(selected.remisePct*100)}%`],["Prix promo",`${selected.prixPromo?.toFixed(3)} DT`],["Qté minimum",selected.qteMin],["Période",`${selected.dateDebut} → ${selected.dateFin}`],["Canaux",(selected.canaux||[]).join(", ")||"Tous"],["Budget promo",`${selected.budgetPromo?.toLocaleString()} DT`],["CA estimé",`${selected.caEstime?.toLocaleString()} DT`],["Objectif",selected.objectif],["Motif",selected.motif],["Créé par",selected.creePar]].map(([l,v])=><div key={l}><div className="font-bold text-gray-400 uppercase">{l}</div><div className="font-semibold mt-0.5">{v}</div></div>)}
-              </div>
-              {/* Impact estimé */}
-              <div className="p-4 bg-purple-50 border border-purple-200 rounded-xl">
-                <div className="text-xs font-bold text-purple-700 uppercase mb-2">📊 Impact estimé</div>
-                <div className="grid grid-cols-3 gap-2 text-xs text-center">
-                  {[["Remise/unité",`${((selected.prixNormal||0)-(selected.prixPromo||0)).toFixed(3)} DT`,"#dc2626"],["CA estimé promo",`${(selected.caEstime||0).toLocaleString()} DT`,"#059669"],["Volume break-even",`${selected.budgetPromo&&(selected.prixNormal-selected.prixPromo)>0?Math.ceil(selected.budgetPromo/(selected.prixNormal-selected.prixPromo))+" pcs":"—"}`,"#7c3aed"]].map(([l,v,c])=><div key={l} className="bg-white rounded-lg p-2 border border-purple-100"><div className="text-gray-400">{l}</div><div className="font-black" style={{color:c}}>{v}</div></div>)}
-                </div>
+                {[["Type",TYPES_PROMO.find(t=>t.k===selected.type2||t.k===selected.type)?.l||selected.type],["Prix normal",`${selected.prixNormal?.toFixed(3)} DT`],["Remise", selected.remise ? `-${selected.remise}%` : "—"],["Prix promo",`${selected.prixPromo?.toFixed(3)} DT`],["Qté minimum",selected.qteMin],["Période",`${selected.dateDebut} → ${selected.dateFin}`],["Canaux",(selected.canaux||[]).join(", ")||"Tous"],["Budget promo",`${selected.budgetPromo?.toLocaleString()} DT`],["CA estimé",`${selected.caEstime?.toLocaleString()} DT`],["Objectif",selected.objectif],["Motif",selected.motif],["Créé par",selected.creePar]].map(([l,v])=><div key={l}><div className="font-bold text-gray-400 uppercase">{l}</div><div className="font-semibold mt-0.5">{v}</div></div>)}
               </div>
               {isDG&&selected.statut==="soumis"&&<div className="space-y-3 border-t border-gray-100 pt-3">
                 <Input label="Commentaire DG" value={motifRef} onChange={e=>setMotifRef(e.target.value)} placeholder="Approuvé · ou motif de refus..."/>
@@ -407,56 +647,170 @@ export default function ListePrixPage({user, prixArticles, setPrixArticles, prom
         )}
       </Modal>
 
-      {/* Modal nouveau prix */}
       <Modal open={showNewPx} onClose={()=>setShowNewPx(false)} title="Nouveau prix — Soumission DG" maxWidth="max-w-2xl">
-        <NouveauPrixForm onSave={addPrix} prixActuels={prixArticles}/>
+        <NouveauPrixForm arts={arts} brands={brands} onSave={addPrix} prixActuels={prixArticles} onClose={()=>setShowNewPx(false)}/>
       </Modal>
 
-      {/* Modal nouvelle promotion */}
       <Modal open={showNewPr} onClose={()=>setShowNewPr(false)} title="Nouvelle Promotion — Soumission DG" maxWidth="max-w-3xl">
-        <NouvellePromoForm onSave={addPromo}/>
+        <NouvellePromoForm arts={arts} brands={brands} onSave={addPromo} onClose={()=>setShowNewPr(false)}/>
       </Modal>
     </div>
   );
 }
 
 // ─── Formulaire nouveau prix ─────────────────────────────────────
-function NouveauPrixForm({onSave, prixActuels}) {
-  const [f,setF]=useState({artId:"",canal:CANAUX_VENTE[0],prixHT:"",zone:"National",dateDebut:TODAY_P,dateFin:"",motif:"",famille:"",format:""});
-  const up=(k,v)=>setF(x=>({...x,[k]:v}));
-  const ancienPrix = f.artId&&f.canal?getPrixActif(prixActuels,f.artId,f.canal)?.prixHT:null;
-  const prixHT = parseFloat(f.prixHT)||0;
-  const prixTTC = +(prixHT*(1+TVA_RATE)).toFixed(3);
-  const evolution = ancienPrix&&prixHT?+((prixHT-ancienPrix)/ancienPrix*100).toFixed(2):null;
-  return <div className="space-y-4">
-    <div className="grid grid-cols-2 gap-4">
-      <Select label="Article *" value={f.artId} onChange={e=>up("artId",e.target.value)}><option value="">Sélectionner...</option>{ARTS.map(a=><option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}</Select>
-      <Select label="Canal de vente *" value={f.canal} onChange={e=>up("canal",e.target.value)}>{CANAUX_VENTE.map(c=><option key={c}>{c}</option>)}</Select>
-      <Field label="Prix HT (DT) *"><input type="number" step="0.001" value={f.prixHT} onChange={e=>up("prixHT",e.target.value)} className="border-2 border-blue-300 rounded-xl px-4 py-3 text-xl font-black text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400 min-h-[56px] w-full"/></Field>
-      <div className="flex flex-col gap-1.5">
-        <label className="text-xs font-bold text-gray-500 uppercase">Prix TTC calculé</label>
-        <div className="border-2 border-emerald-200 bg-emerald-50 rounded-xl px-4 py-3 text-xl font-black text-emerald-700 min-h-[56px] flex items-center">{prixTTC>0?`${prixTTC.toFixed(3)} DT`:"—"}</div>
+function NouveauPrixForm({ onSave, arts = [], brands = [], prixActuels  }) {
+  const [f, setF] = useState({
+    artId: "",
+    canal: CANAUX_VENTE[0] || "",
+    prixHT: "",
+    zone: "National",
+    dateDebut: TODAY_P,
+    dateFin: "",
+    motif: "",
+    format: ""
+  });
+  
+  const [selectedBrandId, setSelectedBrandId] = useState("");
+
+  const up = (k, v) => setF(x => ({ ...x, [k]: v }));
+
+  // 2. Calculs dérivés
+  const ancienPrix = f.artId && f.canal && typeof getPrixActif === 'function'
+    ? getPrixActif(prixActuels, f.artId, f.canal)?.prixHT 
+    : null;
+
+  const prixHT = parseFloat(f.prixHT) || 0;
+  const prixTTC = +(prixHT * (1 + TVA_RATE)).toFixed(3);
+  const evolution = ancienPrix && prixHT ? +((prixHT - ancienPrix) / ancienPrix * 100).toFixed(2) : null;
+
+  // 3. Filtrage des articles par Marque
+  const filteredArts = useMemo(() => {
+    if (!selectedBrandId) return arts;
+    return arts.filter(a => {
+      const artBrandId = a.brand_id || a.marque_id;
+      return artBrandId && String(artBrandId) === String(selectedBrandId);
+    });
+  }, [selectedBrandId, arts]);
+
+  const handleBrandChange = (brandId) => {
+    setSelectedBrandId(brandId);
+    if (!brandId) return;
+
+    if (f.artId) {
+      const currentArticle = arts.find(a => String(a.id) === String(f.artId));
+      const artBrandId = currentArticle?.brand_id || currentArticle?.marque_id;
+      if (String(artBrandId) !== String(brandId)) {
+        up("artId", "");
+      }
+    }
+  };
+
+  const currentBrandName = brands.find(b => String(b.id) === String(selectedBrandId))?.name || brands.find(b => String(b.id) === String(selectedBrandId))?.nom || "";
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-4">
+        
+        {/* Sélecteur de Marque */}
+        <Select 
+          label="Filtrer par Marque" 
+          value={selectedBrandId} 
+          onChange={e => handleBrandChange(e.target.value)}
+          className="border-blue-300 bg-blue-50/30"
+        >
+          <option value="">Toutes les marques</option>
+          {brands.map(b => (
+            <option key={b.id} value={b.id}>{b.name || b.nom}</option>
+          ))}
+        </Select>
+
+        {/* Section de l'Article */}
+        <div className="bg-gray-50/50 p-3 rounded-2xl border border-gray-100 flex flex-col justify-between">
+          <div className="flex justify-between items-center mb-2">
+            <div className="text-xs font-bold text-gray-400 uppercase">
+              Article {currentBrandName ? `(${currentBrandName})` : ""} *
+            </div>
+            {selectedBrandId && (
+              <span className="text-[10px] bg-blue-100 text-blue-700 font-bold px-2 py-0.5 rounded-full">
+                Filtre actif: {filteredArts.length} article{filteredArts.length > 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+          
+          <Select 
+            className="w-full" 
+            value={f.artId} 
+            onChange={e => up("artId", e.target.value)}
+          >
+            <option value="">Sélectionner un article...</option>
+            {filteredArts.length > 0 ? (
+              filteredArts.map(a => (
+                <option key={a.id} value={a.id}>{a.code || a.ref} — {a.name || a.libelle}</option>
+              ))
+            ) : (
+              <option disabled>Aucun article disponible</option>
+            )}
+          </Select>
+        </div>
+
+           <Select label="Canal de vente *" value={f.canal} onChange={e=>up("canal",e.target.value)}>{CANAUX_VENTE.map(c=><option key={c}>{c}</option>)}</Select>
+
+        <Field label="Prix HT (DT) *">
+          <input 
+            type="number" 
+            step="0.001" 
+            value={f.prixHT} 
+            onChange={e => up("prixHT", e.target.value)} 
+            className="border-2 border-blue-300 rounded-xl px-4 py-3 text-xl font-black text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400 min-h-[56px] w-full"
+          />
+        </Field>
+
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-bold text-gray-500 uppercase">Prix TTC calculé</label>
+          <div className="border-2 border-emerald-200 bg-emerald-50 rounded-xl px-4 py-3 text-xl font-black text-emerald-700 min-h-[56px] flex items-center">
+            {prixTTC > 0 ? `${prixTTC.toFixed(3)} DT` : "—"}
+          </div>
+        </div>
+
+        <Input label="Date de début" type="date" value={f.dateDebut} onChange={e => up("dateDebut", e.target.value)}/>
+        <Input label="Date de fin (optionnel)" type="date" value={f.dateFin} onChange={e => up("dateFin", e.target.value)}/>
       </div>
-      <Input label="Date de début" type="date" value={f.dateDebut} onChange={e=>up("dateDebut",e.target.value)}/>
-      <Input label="Date de fin (optionnel)" type="date" value={f.dateFin} onChange={e=>up("dateFin",e.target.value)}/>
+
+      {/* Box Comparaison d'évolution de prix */}
+      {ancienPrix && (
+        <div className="p-4 rounded-xl border-2 border-dashed" style={{ borderColor: evolution >= 0 ? "#059669" : "#dc2626", background: evolution >= 0 ? "#f0fdf4" : "#fef2f2" }}>
+          <div className="text-xs font-bold uppercase mb-2" style={{ color: evolution >= 0 ? "#059669" : "#dc2626" }}>
+            Comparaison ancien → nouveau prix
+          </div>
+          <div className="flex items-center gap-4 text-sm">
+            <div><span className="text-gray-400">Ancien: </span><span className="line-through font-bold">{ancienPrix.toFixed(3)} DT HT</span></div>
+            <span className="text-2xl text-gray-300">→</span>
+            <div><span className="text-gray-400">Nouveau: </span><span className="font-black" style={{ color: evolution >= 0 ? "#059669" : "#dc2626" }}>{prixHT.toFixed(3)} DT HT</span></div>
+            <span className="font-black text-lg px-3 py-1 rounded-xl text-white" style={{ background: evolution >= 0 ? "#059669" : "#dc2626" }}>
+              {evolution >= 0 ? "+" : ""}{evolution?.toFixed(1)}%
+            </span>
+          </div>
+        </div>
+      )}
+
+      <Textarea label="Motif du changement de prix *" value={f.motif} onChange={e => up("motif", e.target.value)} placeholder="Révision annuelle, hausse matières premières..."/>
+      
+      <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800">
+        ℹ Ce prix sera soumis au Directeur Général pour validation. Il ne sera activé qu'après approbation DG. L'ancien prix reste actif jusqu'à validation.
+      </div>
+      
+      <div className="flex gap-2">
+        <Btn variant="purple" onClick={() => onSave(f)} disabled={!f.artId || !f.prixHT || !f.motif} className="flex-1">
+          → Soumettre au DG
+        </Btn>
+      </div>
     </div>
-    {ancienPrix&&<div className="p-4 rounded-xl border-2 border-dashed" style={{borderColor:evolution>=0?"#059669":"#dc2626",background:evolution>=0?"#f0fdf4":"#fef2f2"}}>
-      <div className="text-xs font-bold uppercase mb-2" style={{color:evolution>=0?"#059669":"#dc2626"}}>Comparaison ancien → nouveau prix</div>
-      <div className="flex items-center gap-4 text-sm">
-        <div><span className="text-gray-400">Ancien: </span><span className="line-through font-bold">{ancienPrix.toFixed(3)} DT HT</span></div>
-        <span className="text-2xl text-gray-300">→</span>
-        <div><span className="text-gray-400">Nouveau: </span><span className="font-black" style={{color:evolution>=0?"#059669":"#dc2626"}}>{prixHT.toFixed(3)} DT HT</span></div>
-        <span className="font-black text-lg px-3 py-1 rounded-xl text-white" style={{background:evolution>=0?"#059669":"#dc2626"}}>{evolution>=0?"+":""}{evolution?.toFixed(1)}%</span>
-      </div>
-    </div>}
-    <Textarea label="Motif du changement de prix *" value={f.motif} onChange={e=>up("motif",e.target.value)} placeholder="Révision annuelle, hausse matières premières, alignement marché, lancement produit..."/>
-    <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800">ℹ Ce prix sera soumis au Directeur Général pour validation. Il ne sera activé qu'après approbation DG. L'ancien prix reste actif jusqu'à validation.</div>
-    <div className="flex gap-2"><Btn variant="purple" onClick={()=>onSave(f)} disabled={!f.artId||!f.prixHT||!f.motif} className="flex-1">→ Soumettre au DG</Btn></div>
-  </div>;
+  );
 }
 
 // ─── Formulaire nouvelle promotion ───────────────────────────────
-function NouvellePromoForm({onSave}) {
+function NouvellePromoForm({onSave, arts = [], brands = [],}) {
   const [f,setF]=useState({nom:"",type:"remise_pct",artId:"",canaux:[],prixNormal:"",remisePct:"",prixPromo:"",qteMin:"1",qteMax:"",dateDebut:TODAY_P,dateFin:"",budgetPromo:"",objectif:"",motif:"",caEstime:""});
   const up=(k,v)=>setF(x=>({...x,[k]:v}));
   const toggleCanal=(c)=>setF(f=>({...f,canaux:f.canaux.includes(c)?f.canaux.filter(x=>x!==c):[...f.canaux,c]}));
@@ -466,13 +820,87 @@ function NouvellePromoForm({onSave}) {
   const remPct   = parseFloat(f.remisePct)/100||0;
   const pxPromo  = remPct>0?+(pxNormal*(1-remPct)).toFixed(3):parseFloat(f.prixPromo)||0;
 
+  const [selectedBrandId, setSelectedBrandId] = useState("");
+
+
+  // 2. Calculs dérivés
+  const ancienPrix = f.artId && f.canal && typeof getPrixActif === 'function'
+    ? getPrixActif(prixActuels, f.artId, f.canal)?.prixHT 
+    : null;
+
+  const prixHT = parseFloat(f.prixHT) || 0;
+  const prixTTC = +(prixHT * (1 + TVA_RATE)).toFixed(3);
+  const evolution = ancienPrix && prixHT ? +((prixHT - ancienPrix) / ancienPrix * 100).toFixed(2) : null;
+
+  // 3. Filtrage des articles par Marque
+  const filteredArts = useMemo(() => {
+    if (!selectedBrandId) return arts;
+    return arts.filter(a => {
+      const artBrandId = a.brand_id || a.marque_id;
+      return artBrandId && String(artBrandId) === String(selectedBrandId);
+    });
+  }, [selectedBrandId, arts]);
+
+  const handleBrandChange = (brandId) => {
+    setSelectedBrandId(brandId);
+    if (!brandId) return;
+
+    if (f.artId) {
+      const currentArticle = arts.find(a => String(a.id) === String(f.artId));
+      const artBrandId = currentArticle?.brand_id || currentArticle?.marque_id;
+      if (String(artBrandId) !== String(brandId)) {
+        up("artId", "");
+      }
+    }
+  };
+
+  const currentBrandName = brands.find(b => String(b.id) === String(selectedBrandId))?.name || brands.find(b => String(b.id) === String(selectedBrandId))?.nom || "";
+
   return <div className="space-y-4">
     <div className="grid grid-cols-2 gap-4">
       <Input label="Nom de la promotion *" value={f.nom} onChange={e=>up("nom",e.target.value)} placeholder="ex: Promo Lancement TC3010 — Mai" className="col-span-2"/>
       <Select label="Type *" value={f.type} onChange={e=>up("type",e.target.value)} className="col-span-2">{TYPES_PROMO.map(t=><option key={t.k} value={t.k}>{t.l}</option>)}</Select>
-      <Select label="Article *" value={f.artId} onChange={e=>{const a=ARTS.find(x=>x.id===e.target.value);up("artId",e.target.value);up("prixNormal",a?a.price.toFixed(3):"");}}>
-        <option value="">Sélectionner...</option>{ARTS.map(a=><option key={a.id} value={a.id}>{a.code} — {a.price.toFixed(3)} DT HT</option>)}
-      </Select>
+      {/* Sélecteur de Marque */}
+        <Select 
+          label="Filtrer par Marque" 
+          value={selectedBrandId} 
+          onChange={e => handleBrandChange(e.target.value)}
+          className="border-blue-300 bg-blue-50/30"
+        >
+          <option value="">Toutes les marques</option>
+          {brands.map(b => (
+            <option key={b.id} value={b.id}>{b.name || b.nom}</option>
+          ))}
+        </Select>
+
+        {/* Section de l'Article */}
+        <div className="bg-gray-50/50 p-3 rounded-2xl border border-gray-100 flex flex-col justify-between">
+          <div className="flex justify-between items-center mb-2">
+            <div className="text-xs font-bold text-gray-400 uppercase">
+              Article {currentBrandName ? `(${currentBrandName})` : ""} *
+            </div>
+            {selectedBrandId && (
+              <span className="text-[10px] bg-blue-100 text-blue-700 font-bold px-2 py-0.5 rounded-full">
+                Filtre actif: {filteredArts.length} article{filteredArts.length > 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+          
+          <Select 
+            className="w-full" 
+            value={f.artId} 
+            onChange={e => up("artId", e.target.value)}
+          >
+            <option value="">Sélectionner un article...</option>
+            {filteredArts.length > 0 ? (
+              filteredArts.map(a => (
+                <option key={a.id} value={a.id}>{a.code || a.ref} — {a.name || a.libelle}</option>
+              ))
+            ) : (
+              <option disabled>Aucun article disponible</option>
+            )}
+          </Select>
+        </div>
       <Input label="Quantité minimum" type="number" value={f.qteMin} onChange={e=>up("qteMin",e.target.value)}/>
     </div>
     <Field label="Canaux concernés *">

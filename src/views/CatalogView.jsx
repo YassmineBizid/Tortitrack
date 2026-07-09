@@ -4,7 +4,7 @@ import { sb } from "../supabaseClient.js";
 
 export function CatalogView({ user, addAudit }) {
   const [products, setProducts] = useState([]);
-  const [brands, setBrands] = useState([]); // 👈 Stockage des marques dispo
+  const [brands, setBrands] = useState([]); 
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [showEdit, setShowEdit] = useState(null);

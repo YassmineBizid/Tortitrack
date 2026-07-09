@@ -13,9 +13,6 @@ export default function UsersView({ user, addAudit }) {
   const [toast, setToast] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Chargement centralisé de TOUTES les données de la DB
-// Chargement centralisé de TOUTES les données de la DB
-// Chargement centralisé de TOUTES les données de la DB
   const loadAllData = async () => {
     setLoading(true);
     try {

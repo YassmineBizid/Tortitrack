@@ -42,8 +42,16 @@ function scoreFournisseurIA(f) {
   const sr  = typeof ev.reactivite==="number"?ev.reactivite*0.10:(f.scoreReactivite||70)/100*10;
   const sc  = typeof ev.condPmt==="number"  ? ev.condPmt*0.10  : (f.delaiPaiementNegocie>=45?10:f.delaiPaiementNegocie>=30?8:5);
   const sdc = typeof ev.docQual==="number"  ? ev.docQual*0.10  : 7;
-  const score = Math.min(100, Math.round(sp+sq+sd+sr+sc+sdc));
+  const score = Math.max(0, Math.min(100, Math.round(sp+sq+sd+sr+sc+sdc)));
   const tier  = score>85?"A":score>=70?"B":score>=50?"C":"D";
+  const details = {
+    prix:      Math.max(0, Math.min(100, Math.round(sp/0.25))),
+    qualite:   Math.max(0, Math.min(100, Math.round(sq/0.25))),
+    delai:     Math.max(0, Math.min(100, Math.round(sd/0.20))),
+    reactivite:Math.max(0, Math.min(100, Math.round(sr/0.10))),
+    condPmt:   Math.max(0, Math.min(100, Math.round(sc/0.10))),
+    docQual:   Math.max(0, Math.min(100, Math.round(sdc/0.10))),
+  };
   const TIER_CFG = {
     A:{color:"#059669",bg:"#ecfdf5",badge:"bg-emerald-600 text-white",label:"A — Excellent"},
     B:{color:"#3b82f6",bg:"#eff6ff",badge:"bg-blue-600 text-white",   label:"B — Bon"},
@@ -51,9 +59,9 @@ function scoreFournisseurIA(f) {
     D:{color:"#dc2626",bg:"#fef2f2",badge:"bg-red-600 text-white",    label:"D — Faible"},
   };
   const evPrev  = (f.evaluations||[]).slice(-2,-1)[0];
-  const scoreP  = evPrev ? Math.round(evPrev.prix*0.25+evPrev.qualite*0.25+evPrev.delai*0.20+evPrev.reactivite*0.10+evPrev.condPmt*0.10+evPrev.docQual*0.10) : null;
+  const scoreP  = evPrev ? Math.round((evPrev.prix||0)*0.25+(evPrev.qualite||0)*0.25+(evPrev.delai||0)*0.20+(evPrev.reactivite||0)*0.10+(evPrev.condPmt||0)*0.10+(evPrev.docQual||0)*0.10) : null;
   const evolution = scoreP !== null ? score - scoreP : null;
-  return {score, tier, evolution, ...TIER_CFG[tier]};
+  return {score, tier, evolution, details, ...TIER_CFG[tier]};
 }
 
 // ─── Alertes fournisseurs ─────────────────────────────────────────────
@@ -178,13 +186,13 @@ export default function FournisseursPage({user, addAudit}) {
       email: principalContact.email || null,
       matieres: matieres.length > 0 ? matieres : null,
       delai: parseInt(form.delaiMoyen) || 7,
-      evaluation: 3, // Respecte la contrainte CHECK (entre 1 et 5)
+      evaluation: 3, 
       mode_paiement: form.mode_paiement || null,
       notes: form.notes || null,
       is_active: form.statut !== "inactif", // true par défaut sauf si explicitement inactif
 
       // Attention aux guillemets pour les colonnes CamelCase de votre schéma SQL
-      "codeFournisseur": form.codeFournisseur || codeGen,
+      "codeFournisseur": form.codeFournisseur || null ,
       statut: form.statut || "actif",
       pays: form.pays || "Tunisie",
       ville: form.ville || null,
@@ -206,14 +214,10 @@ export default function FournisseursPage({user, addAudit}) {
       "nbReclamations90j": parseInt(form.nbReclamations90j) || 0,
       "nbCommandes": parseInt(form.nbCommandes) || 0,
 
-      // Champs JSONB (on conserve les structures attendues ou la saisie du formulaire)
       contacts: form.contacts || [],
       produits: form.produits || [],
-      evaluations: form.evaluations || [
-        { prix: 100, delai: 100, condPmt: 100, docQual: 100, qualite: 100, reactivite: 100 }
-      ]
-      
-      // Note : totalAchats et scoreReactivite ont été retirés car absents de la table SQL
+      evaluations: form.evaluations || []
+    
     };
 
       const { data, error } = await sb
@@ -353,7 +357,7 @@ export default function FournisseursPage({user, addAudit}) {
                     <div className="text-center">
                       <div className="text-2xl font-black" style={{color:ia.color}}>{ia.score}</div>
                       <div className="text-xs font-bold" style={{color:ia.color}}>Niv. {ia.tier}</div>
-                      {ia.evolution!==null&&<div className={`text-xs font-semibold ${ia.evolution>0?"text-red-500":ia.evolution<0?"text-emerald-500":"text-gray-400"}`}>{ia.evolution>0?"+":""}{ia.evolution}pts</div>}
+                      {ia.evolution!==null&&<div className={`text-xs font-semibold ${ia.evolution>0?"text-emerald-500":ia.evolution<0?"text-red-500":"text-gray-400"}`}>{ia.evolution>0?"+":""}{ia.evolution}pts</div>}
                     </div>
                     <Btn variant="secondary" size="sm" onClick={()=>setSelected(f)}>Fiche →</Btn>
                   </div>
@@ -520,7 +524,7 @@ function FicheFournisseurV2({f, allF=[], addAudit, user}) {
       <div className="rounded-2xl p-4 flex items-center justify-between gap-4 flex-wrap" style={{background:`linear-gradient(135deg,${ia.color}15,${ia.color}05)`,border:`2px solid ${ia.color}30`}}>
         <div>
           <span className={`text-sm px-3 py-1 rounded-full font-black ${ia.badge}`}>Niveau {ia.tier} — {ia.label}</span>
-          {ia.evolution!==null&&<span className={`ml-2 text-xs font-bold ${ia.evolution>0?"text-red-500":ia.evolution<0?"text-emerald-500":"text-gray-400"}`}>{ia.evolution>0?"↑+":"↓"}{ia.evolution}pts</span>}
+          {ia.evolution!==null&&<span className={`ml-2 text-xs font-bold ${ia.evolution>0?"text-emerald-500":ia.evolution<0?"text-red-500":"text-gray-400"}`}>{ia.evolution>0?"↑+":"↓"}{ia.evolution}pts</span>}
           <div className="text-xs text-gray-500 mt-1">{f.codeFournisseur} · {f.ville} · {f.acheteurResponsable}</div>
         </div>
         <div className="text-center">
@@ -646,8 +650,7 @@ function FicheFournisseurV2({f, allF=[], addAudit, user}) {
           <div className="p-3 rounded-2xl border border-gray-200 text-xs">
             <div className="font-bold text-gray-500 uppercase mb-3">Décomposition score /100</div>
             {[["Prix","prix",25],["Qualité","qualite",25],["Délais","delai",20],["Réactivité","reactivite",10],["Cond. pmt","condPmt",10],["Qualité doc","docQual",10]].map(([l,k,w])=>{
-              const ev=(f.evaluations||[]).slice(-1)[0]||{};
-              const val=ev[k]||0;
+              const val = ia.details?.[k] ?? 0;
               return (
                 <div key={l} className="flex items-center gap-2 mb-1.5">
                   <span className="w-24 text-gray-500">{l} ({w}%)</span>
@@ -724,9 +727,7 @@ function NouveauFournisseurForm({ onSave }) {
     nbCommandes: 0,
     
     // Évaluations (Dernières notes IA / Grille)
-    evaluations: [
-      { prix: 100, qualite: 100, delai: 100, reactivite: 100, condPmt: 100, docQual: 100 }
-    ],
+    evaluations: [],
 
     // Produits & Prix
     produits: []

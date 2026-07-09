@@ -184,12 +184,10 @@ const injectCommandeItems = (commande) => {
   }
   
   const newItems = commande.items.map((item, idx) => {
-    // 1. On cherche l'article correspondant dans la liste globale
     const targetArt = artsList.find(a => a.code === item.artCode || a.id === item.artId);
     
     return {
       artId: targetArt?.id || item.artId || "",
-      // 2. On ajoute la propriété pour le nom (ex: targetArt.name ou targetArt.libelle selon votre structure)
       artNom: targetArt?.name || item.artName || "Article inconnu", 
       qty: parseInt(item.qty) || 0,
       lotCode: item.lotCode || "",

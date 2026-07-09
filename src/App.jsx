@@ -92,17 +92,17 @@ const NAV_GROUPS = [
   { group:"Accueil", icon:"🏠", items:[
     { id:"home",          label:"Tableau de bord",   icon:"🏠", roles:[] },
     { id:"objectifs", label:"Objectifs", icon:"🎯", roles:["dg","finance","dir_commercial"] },
-    { id:"notifications", label:"Notifications", icon:"🔔", roles:[] },
+    { id:"notifications", label:"Notifications", icon:"🔔", roles:["dg"] },
     { id:"requests", label:"Personnel", icon:"👥", roles:[] },
   ]},
   { group:"Commerce", icon:"🛒", items:[
     { id:"performance",   label:"Dashboard Commercial",        icon:"📊", roles:["dg","finance","dir_commercial","chef_commercial","commercial"] },
-    { id:"clientpage",       label:"Clients",            icon:"🤝", roles:[] },
-    { id:"cpf",           label:"Commandes PF",       icon:"📋", roles:[] },
-    {id:"optimisation_tournee", label:"Optimisation Tournée", icon:"🗺", roles:[] },
-    { id:"demande_chargement", label:"Demande Chargement", icon:"🚛", roles:[] },
-    { id:"stock_camion",     label:"Stock Camion",      icon:"🚐", roles:[] },
-    { id:"gestion_commerciale", label:"Visite", icon:"🛒", roles:[] },
+    { id:"clientpage",       label:"Clients",            icon:"🤝", roles:["dg","dir_commercial","chef_commercial","commercial"] },
+    { id:"cpf",           label:"Commandes PF",       icon:"📋", roles:["dg","dir_commercial","chef_commercial","commercial"] },
+    {id:"optimisation_tournee", label:"Optimisation Tournée", icon:"🗺", roles:["dg","dir_commercial","chef_commercial","commercial"] },
+    { id:"demande_chargement", label:"Demande Chargement", icon:"🚛", roles:["dg","dir_commercial","chef_commercial","commercial"] },
+    { id:"stock_camion",     label:"Stock Camion",      icon:"🚐", roles:["dg","dir_commercial","chef_commercial","commercial"] },
+    { id:"gestion_commerciale", label:"Visite", icon:"🛒", roles:["dg","dir_commercial","chef_commercial","commercial"] },
 
   ]},
   { group:"Production", icon:"🏭", items:[
@@ -127,14 +127,14 @@ const NAV_GROUPS = [
     { id:"alerts",     label:"Alertes",          icon:"🔔", roles:["dg","quality","chef_usine"] },
   ]},
   { group:"Stock", icon:"📦", items:[
-    { id:"stock", label:"Stock PF", icon:"📦", roles:[] },
+    { id:"stock", label:"Stock PF", icon:"📦", roles:["dg", "chef_usine"] },
   ]},
   { group:"Finance", icon:"💰", items:[
     { id:"finance_dash", label:"Dashboard Finance", icon:"💹", roles:["dg","finance"] },
-    { id:"encaissement", label:"Encaissements",     icon:"💵", roles:[] },
+    { id:"encaissement", label:"Encaissements",     icon:"💵", roles:["dg","finance"] },
     { id:"traite",      label:"Traites & Échéances", icon:"🗒", roles:["dg","finance"] },
-    { id:"prix",         label:"Tarifs & Prix",     icon:"🏷",  roles:[] },
-    { id:"catalog", label:"Catalog",       icon:"📊", roles:[] },
+    { id:"prix",         label:"Coût Produit Fini",     icon:"🏷",  roles:["dg","finance"] },
+    { id:"catalog", label:"Catalog",       icon:"📊", roles:["dg","finance",] },
     { id:"cloture_tournee", label:"Clôture Tournée", icon:"✅", roles:["dg","finance","dir_commercial"] },
     { id :"liste_prix", label:"Liste Prix & Promotions", icon:"🏷", roles:["dg","finance","dir_commercial"]},
   ]},
@@ -148,8 +148,8 @@ const NAV_GROUPS = [
   ]},
   { group:"Outils", icon:"🛠", items:[
     { id:"ai",       label:"Assistant IA", icon:"🤖", roles:[] },
-    { id:"settings", label:"Paramètres",   icon:"⚙",  roles:[] },
-    { id:"ai_copilot_hub", label:"Propositions IA", icon:"🤖", roles:[] },
+    { id:"settings", label:"Paramètres",   icon:"⚙",  roles:["dg","admin"] },
+    { id:"ai_copilot_hub", label:"Propositions IA", icon:"🤖", roles:["dg","admin"] },
   ]},
 ];
 
@@ -184,6 +184,8 @@ export default function App() {
     fournisseurs, setFournisseurs,
     traites, setTraites,
     brands,
+    prixArticles, setPrixArticles,
+    promotions, setPromotions,
     reload: reloadSupa,
   } = sbData;
 
@@ -315,7 +317,7 @@ export default function App() {
       case "fiche_fournisseur": return <FournisseursPage {...p} f={null} allF={fournisseurs} addAudit={addAudit}/>;
       case "traite":           return <TraitessPage {...p} traites={traites} setTraites={setTraites} factures={factures} bls={bls} clients={clients} fournisseurs={fournisseurs} addNotif={() => {}} onSaved={() => reloadSupa(["traites"])}/>;
       case "clientpage":      return <ClientPage clients={clients} setClients={setClients} addAudit={addAudit} factures={factures} bls={bls} onSaved={() => reloadSupa(["clients","factures","delivery_orders"])}/>;
-      case "liste_prix":       return <ListePrixPage {...p} prixArticles={[]} setPrixArticles={() => {}} promotions={[]} setPromotions={() => {}} addAudit={addAudit}/>;
+      case "liste_prix":       return <ListePrixPage {...p} arts={arts} prixArticles={prixArticles} setPrixArticles={setPrixArticles} promotions={promotions} setPromotions={setPromotions} addAudit={addAudit}/>;
       case "objectifs":         return <ObjectifsPage {...p} objectifsDG={[]} setObjectifsDG={() => {}} objectifsDept={[]} setObjectifsDept={() => {}} objectifsInt={[]} setObjectifsInt={() => {}}/>;
       case "ai_copilot_hub":      return <AICopilotHub {...p} proposals={[]} setProposals={() => {}} clients={clients} factures={factures}/>;
       case "reception_mp":

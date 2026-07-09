@@ -3,7 +3,7 @@ import BLView from "./BLView.jsx";
 import BR from "./BRView.jsx";
 import FacturationView from "./FacturationView.jsx";
 import { sb } from "../supabaseClient.js";
-import { useState } from "react";
+import { useState, useEffect } from "react"; // ⭐ Ajout de useEffect
 
 const reasons = {
   ECHEC_LIVRAISON: [
@@ -29,10 +29,9 @@ const reasons = {
   ]
 };
 
-// Fonction de calcul de distance Haversine (Retourne la distance en mètres entre deux points GPS)
 function getDistanceMeters(lat1, lon1, lat2, lon2) {
   if (!lat1 || !lon1 || !lat2 || !lon2) return Infinity;
-  const R = 6371e3; // Rayon de la terre en mètres
+  const R = 6371e3;
   const phi1 = (lat1 * Math.PI) / 180;
   const phi2 = (lat2 * Math.PI) / 180;
   const deltaPhi = ((lat2 - lat1) * Math.PI) / 180;
@@ -49,7 +48,7 @@ function getDistanceMeters(lat1, lon1, lat2, lon2) {
 export default function GestionCommercialeHub({
   user,
   arts,
-  clients,
+  clients = [],
   addAudit,
   bls,
   setBls,
@@ -62,7 +61,7 @@ export default function GestionCommercialeHub({
   brands = [],
   onSaved
 }) {
-  const [activeTab, setActiveTab] = useState("bl");
+  const [activeTab, setActiveTab] = useState("br");
   const [selectedClient, setSelectedClient] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [incidentType, setIncidentType] = useState("");
@@ -70,10 +69,44 @@ export default function GestionCommercialeHub({
   const [successMessage, setSuccessMessage] = useState("");
   const [commentaire, setCommentaire] = useState("");
 
-  // Nouveaux états pour le suivi de la visite GPS
-  const [checkInClient, setCheckInClient] = useState(null); // Client actuellement visité
+  const [checkInClient, setCheckInClient] = useState(null);
   const [gpsLoading, setGpsLoading] = useState(false);
   const [gpsError, setGpsError] = useState("");
+
+  // NOUVEAU : État pour stocker les IDs des clients ayant des commandes "available" pour ce commercial
+  const [eligibleClientIds, setEligibleClientIds] = useState([]);
+
+  const roles = user?.roles || [];
+  const isOnlyCommercial = roles.includes("commercial") && !roles.includes("chef_commercial") && !roles.includes("dg");
+
+  // NOUVEAU : Récupération asynchrone des clients éligibles pour le rôle commercial
+  useEffect(() => {
+    async function fetchEligibleClients() {
+      if (!isOnlyCommercial || !user?.nom) return;
+      try {
+        const { data, error } = await sb
+          .from("commandes_pf")
+          .select("client_id, status, commercial")
+          .eq("commercial", user.nom)
+          .eq("status", "available");
+
+        if (error) throw error;
+        if (data) {
+          // Extraire les IDs de clients uniques
+          const ids = [...new Set(data.map(c => c.client_id).filter(Boolean))];
+          setEligibleClientIds(ids);
+        }
+      } catch (err) {
+        console.error("Erreur lors du filtrage des clients éligibles:", err);
+      }
+    }
+    fetchEligibleClients();
+  }, [isOnlyCommercial, user?.nom]);
+
+  // NOUVEAU : Filtrage final de la liste des clients passée en props
+  const clientsFiltres = isOnlyCommercial 
+    ? clients.filter(c => eligibleClientIds.includes(c.id))
+    : clients;
 
   const openIncident = (type) => {
     setIncidentType(type);
@@ -128,7 +161,6 @@ export default function GestionCommercialeHub({
     setTimeout(() => setSuccessMessage(""), 3000);
   };
 
-  // Logique du Pointage d'arrivée GPS
   const handleCheckIn = () => {
     if (!selectedClient) {
       alert("Veuillez d'abord choisir un client.");
@@ -193,7 +225,6 @@ export default function GestionCommercialeHub({
     );
   };
 
-  // NOUVEAU: Passer outre la validation GPS
   const handleBypassCheckIn = () => {
     if (!selectedClient) {
       alert("Veuillez d'abord choisir un client.");
@@ -218,11 +249,15 @@ export default function GestionCommercialeHub({
     setTimeout(() => setSuccessMessage(""), 2000);
   };
 
-  const singleClientArray = checkInClient ? [checkInClient] : clients;
+  const singleClientArray = checkInClient ? [checkInClient] : clientsFiltres;
+
+  const filteredBls     = checkInClient ? (bls      || []).filter(b => b.clientId === checkInClient.id) : bls;
+  const filteredBrs     = checkInClient ? (brs      || []).filter(b => b.clientId === checkInClient.id) : brs;
+  const filteredFactures = checkInClient ? (factures || []).filter(f => f.clientId === checkInClient.id) : factures;
 
   const tabs = [
-    { id: "bl", label: "🚚 Bons de Livraison" },
     { id: "br", label: "🔄 Bons de Retour" },
+    { id: "bl", label: "🚚 Bons de Livraison" },
     { id: "factures", label: "📄 Factures & Règlements" }
   ];
 
@@ -231,36 +266,28 @@ export default function GestionCommercialeHub({
       {/* En-tête */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 border-b border-gray-100 pb-4">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">
-            Gestion Commerciale & Visites
-          </h1>
-          <p className="text-xs text-gray-400 mt-0.5">
-            Pointage d'arrivée géolocalisé et ouverture des modules de flux commerciaux.
-          </p>
+          <h1 className="text-xl font-bold text-gray-900">Gestion Commerciale & Visites</h1>
+          <p className="text-xs text-gray-400 mt-0.5">Pointage d'arrivée géolocalisé et ouverture des modules de flux commerciaux.</p>
         </div>
-
         <div className="text-right text-xs text-gray-500 bg-gray-50 px-3 py-1.5 rounded-xl border border-gray-200/60">
-          Opérateur :{" "}
-          <strong className="text-gray-700">
-            {user?.nom || "Admin"}
-          </strong>
+          Opérateur : <strong className="text-gray-700">{user?.nom || "Admin"}</strong>
         </div>
       </div>
 
-      {/* SECTION POINTAGE D'ARRIVÉE GPS */}
       <Card className="p-4 border-l-4 border-blue-500 bg-blue-50/20">
         <h2 className="text-sm font-bold text-gray-800 mb-3">📍 Pointage Arrivée Client</h2>
         
         {!checkInClient ? (
           <div className="flex flex-col gap-3">
             <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
+              {/* MODIFICATION : Utilisation de clientsFiltres au lieu de clients */}
               <select
                 value={selectedClient}
                 onChange={(e) => setSelectedClient(e.target.value)}
                 className="border border-gray-300 rounded-xl p-2.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 flex-1 min-h-[42px]"
               >
                 <option value="">Sélectionner le client à visiter...</option>
-                {clients && clients.map((client) => (
+                {clientsFiltres && clientsFiltres.map((client) => (
                   <option key={client.id} value={client.id}>
                     {client.nom || client.name} {client.zone ? `(${client.zone})` : ""}
                   </option>
@@ -278,7 +305,6 @@ export default function GestionCommercialeHub({
               </button>
             </div>
 
-            {/* Bouton alternatif pour bypasser */}
             <div className="flex justify-end">
               <button
                 onClick={handleBypassCheckIn}
@@ -311,7 +337,6 @@ export default function GestionCommercialeHub({
         )}
       </Card>
 
-      {/* Le reste de ton code (Messages d'action, Boutons d'incidents, Bloc des onglets, Modal) reste identique */}
       {successMessage && (
         <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-xl text-xs font-semibold shadow-xs">
           {successMessage}
@@ -319,17 +344,10 @@ export default function GestionCommercialeHub({
       )}
 
       <div className="flex flex-wrap gap-2">
-        <button
-          onClick={() => openIncident("ECHEC_LIVRAISON")}
-          className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white font-bold text-xs rounded-lg transition-colors"
-        >
+        <button onClick={() => openIncident("ECHEC_LIVRAISON")} className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white font-bold text-xs rounded-lg transition-colors">
           ❌ Échec livraison
         </button>
-
-        <button
-          onClick={() => openIncident("RECLAMATION_CLIENT")}
-          className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs rounded-lg transition-colors"
-        >
+        <button onClick={() => openIncident("RECLAMATION_CLIENT")} className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs rounded-lg transition-colors">
           📞 Réclamation client
         </button>
       </div>
@@ -363,48 +381,17 @@ export default function GestionCommercialeHub({
             })}
           </div>
 
+          {activeTab === "br" && (
+            <BR user={user} arts={arts} clients={singleClientArray} addAudit={addAudit} brs={filteredBrs} setBrs={setBrs} lots={lots} setLots={setLots} onSaved={onSaved} />
+          )}
+
           <div className="animate-fadeIn">
             {activeTab === "bl" && (
-              <BLView
-                user={user}
-                arts={arts}
-                clients={singleClientArray}
-                brands={brands}
-                addAudit={addAudit}
-                bls={bls}
-                setBls={setBls}
-                lots={lots}
-                setLots={setLots}
-                onSaved={onSaved}
-              />
-            )}
-
-            {activeTab === "br" && (
-              <BR
-                user={user}
-                arts={arts}
-                clients={singleClientArray}
-                addAudit={addAudit}
-                brs={brs}
-                setBrs={setBrs}
-                lots={lots}
-                setLots={setLots}
-                onSaved={onSaved}
-              />
+              <BLView user={user} arts={arts} clients={singleClientArray} brands={brands} addAudit={addAudit} bls={filteredBls} setBls={setBls} lots={lots} setLots={setLots} onSaved={onSaved} />
             )}
 
             {activeTab === "factures" && (
-              <FacturationView
-                user={user}
-                arts={arts}
-                brands={brands}
-                lots={lots}
-                clients={singleClientArray}
-                addAudit={addAudit}
-                factures={factures}
-                setFactures={setFactures}
-                onSaved={onSaved}
-              />
+              <FacturationView user={user} arts={arts} brands={brands} lots={lots} clients={singleClientArray} addAudit={addAudit} factures={filteredFactures} setFactures={setFactures} onSaved={onSaved} />
             )}
           </div>
         </>
@@ -415,6 +402,7 @@ export default function GestionCommercialeHub({
           <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl">
             <h2 className="text-lg font-bold mb-4">Déclaration d'incident</h2>
             
+            {/* MODIFICATION : Ici aussi, le modal utilise maintenant clientsFiltres */}
             <select
               value={checkInClient ? checkInClient.id : selectedClient}
               disabled={!!checkInClient}
@@ -422,7 +410,7 @@ export default function GestionCommercialeHub({
               className="w-full border rounded-lg p-3 mb-3 bg-gray-50 text-xs font-semibold"
             >
               <option value="">Sélectionner un client</option>
-              {clients && clients.map((client) => (
+              {clientsFiltres && clientsFiltres.map((client) => (
                 <option key={client.id} value={client.id}>
                   {client.nom || client.name}
                 </option>
@@ -436,9 +424,7 @@ export default function GestionCommercialeHub({
             >
               <option value="">Choisir un motif...</option>
               {reasons[incidentType]?.map((reason) => (
-                <option key={reason} value={reason}>
-                  {reason}
-                </option>
+                <option key={reason} value={reason}>{reason}</option>
               ))}
             </select>
 
@@ -451,12 +437,8 @@ export default function GestionCommercialeHub({
             />
 
             <div className="flex justify-end gap-2 mt-5">
-              <button onClick={() => setShowModal(false)} className="px-4 py-2 border rounded-lg text-xs font-semibold">
-                Annuler
-              </button>
-              <button onClick={handleSaveIncident} className="px-4 py-2 bg-blue-600 text-white font-bold rounded-lg text-xs">
-                Enregistrer
-              </button>
+              <button onClick={() => setShowModal(false)} className="px-4 py-2 border rounded-lg text-xs font-semibold">Annuler</button>
+              <button onClick={handleSaveIncident} className="px-4 py-2 bg-blue-600 text-white font-bold rounded-lg text-xs">Enregistrer</button>
             </div>
           </div>
         </div>

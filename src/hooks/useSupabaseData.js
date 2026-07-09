@@ -293,6 +293,54 @@ const mapTraite = (r) => ({
   events:         r.events || [],
 });
 
+
+const mapPrixArticle = (r) => ({
+    id: r.id,
+    artId: r.art_id,
+    code: r.code,
+    designation: r.designation,
+    marque: r.marque,
+    format: r.format,
+    prixHT: r.prix_ht ? parseFloat(r.prix_ht) : 0,
+    tva: r.tva ? parseFloat(r.tva) : 0,
+    prixTTC: r.prix_ttc ? parseFloat(r.prix_ttc) : 0,
+    devise: r.devise || "DT",
+    canal: r.canal,
+    zone: r.zone,
+    dateDebut: r.date_debut,
+    dateFin: r.date_fin,
+    statut: r.statut,
+    valide: !!r.valide, // Force un booléen pure (true/false)
+    creePar: r.cree_par,
+    dateCreation: r.created_at,
+    validePar: r.valide_par,
+    dateValidation: r.date_validation,
+    ancienPrix: r.ancien_prix ? parseFloat(r.ancien_prix) : 0,
+    evolution: r.evolution ? parseFloat(r.evolution) : 0,
+    motif: r.motif,
+    commentaireValidation: r.commentaire_validation || ""
+});
+
+const mapPromotion = (r) => ({
+    id: r.id,
+    nom: r.nom,
+    type: r.type,
+    artIds: r.art_ids || [],
+    canaux: r.canaux || [],
+    // Conversion en taux (ex: si stocké 10 en BDD, devient 0.10 pour l'UI)
+    remisePct: r.remise_pct ? parseFloat(r.remise_pct) / 100 : 0, 
+    prixPromo: r.prix_promo ? parseFloat(r.prix_promo) : 0,
+    qteMin: parseInt(r.qte_min) || 1,
+    dateDebut: r.date_debut,
+    dateFin: r.date_fin,
+    statut: r.statut,
+    creePar: r.cree_par,
+    validePar: r.valide_par,
+    motif: r.motif,
+    caEstime: r.ca_estime ? parseFloat(r.ca_estime) : 0,
+    budgetPromo: r.budget_promo ? parseFloat(r.budget_promo) : 0
+  });
+
 // ── Hook principal ───────────────────────────────────────────
 
 export function useSupabaseData(fallback) {
@@ -310,7 +358,11 @@ export function useSupabaseData(fallback) {
   const [fournisseurs,  setFournisseurs]  = useState(fallback.fournisseurs  || []);
   const [traites,       setTraites]       = useState(fallback.traites       || []);
   const [brands,        setBrands]        = useState(fallback.brands        || []);
+  const [prixArticles, setPrixArticles] = useState([]);
+  const [promotions, setPromotions] = useState([]);
   const [loading,       setLoading]       = useState(true);
+  
+  
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -319,6 +371,7 @@ export function useSupabaseData(fallback) {
         prodRes, lotsRes, blsRes, brsRes,
         clientsRes, cpfRes, cmpRes,
         facturesRes, encRes, scRes, alertsRes, foursRes, traitesRes, brandsRes,
+        prixArticlesRes, promotionsRes,
       ] = await Promise.allSettled([
         sb.from("products").select("*").eq("is_active", true).order("ref"),
         sb.from("production_lots").select("*, products(id, ref, name)").order("created_at", { ascending: false }),
@@ -334,6 +387,8 @@ export function useSupabaseData(fallback) {
         sb.from("fournisseurs").select("*").order("name"),
         sb.from("traites").select("*").order("dateEcheance", { ascending: true }),
         sb.from("brands").select("*").order("name"),
+        sb.from("prix_articles").select("*").order("created_at", { ascending: false }),
+        sb.from("promotions").select("*").order("created_at", { ascending: false }),
       ]);
 
       const pick = (res, mapper) => {
@@ -384,6 +439,12 @@ export function useSupabaseData(fallback) {
 
       const newBrands = pick(brandsRes, (r) => ({ id: r.id, name: r.name }));
       if (newBrands !== null) setBrands(newBrands);
+      
+      const newPrixArticles = pick(prixArticlesRes, mapPrixArticle);
+      if (newPrixArticles !== null) setPrixArticles(newPrixArticles);
+
+      const newPromotions = pick(promotionsRes, mapPromotion);
+      if (newPromotions !== null) setPromotions(newPromotions);
 
     } finally {
       setLoading(false);
@@ -433,6 +494,12 @@ export function useSupabaseData(fallback) {
         } else if (t === "traites") {
           const { data, error } = await sb.from("traites").select("*").order("dateEcheance", { ascending: true });
           if (!error && data) setTraites(data.map(mapTraite));
+        } else if (t === "prix_articles") {
+          const { data, error } = await sb.from("prix_articles").select("*").order("created_at", { ascending: false });
+          if (!error && data) setPrixArticles(data.map(mapPrixArticle));
+        } else if (t === "promotions") {
+          const { data, error } = await sb.from("promotions").select("*").order("created_at", { ascending: false });
+          if (!error && data) setPromotions(data.map(mapPromotion));
         }
       })
     );
@@ -453,6 +520,8 @@ export function useSupabaseData(fallback) {
     fournisseurs,  setFournisseurs,
     traites,       setTraites,
     brands,        setBrands,
+    prixArticles, setPrixArticles,
+    promotions,    setPromotions,
     loading,
     reload,
   };

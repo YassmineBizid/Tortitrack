@@ -19,9 +19,12 @@ export default function OptimisationTourneeView({ user }) {
     "Banlieue"
   ];
 
+  // Rôles utilisateur
+  const roles = user?.roles || [];
+  const isOnlyCommercial = roles.includes("commercial") && !roles.includes("chef_commercial") && !roles.includes("dg");
+
   // Extraction de la colonne 'zone' depuis la relation avec la table clients
   const extraireZone = (c) => {
-    // Cherche d'abord dans l'objet lié 'clients', sinon tente un fallback direct
     return c.clients?.zone || c.zone || "Sans zone";
   };
 
@@ -30,7 +33,7 @@ export default function OptimisationTourneeView({ user }) {
       try {
         setLoadingBDD(true);
         
-        // 🎯 JOINTURE : On récupère toutes les colonnes de la commande + la zone du client lié
+        // JOINTURE : On récupère toutes les colonnes de la commande + la zone du client lié
         const { data, error } = await sb
           .from("commandes_pf") 
           .select("*, clients(zone)"); 
@@ -38,21 +41,29 @@ export default function OptimisationTourneeView({ user }) {
         if (error) throw error;
 
         if (data) {
-          let classees = data.filter(c => {
+          // 1. Filtrage par rôle : Si l'utilisateur est uniquement commercial, il ne voit que ses commandes
+          let rawData = data;
+          if (isOnlyCommercial) {
+            rawData = data.filter(c => c.commercial === user?.nom);
+          }
+
+          // 2. Traitement habituel de vos données filtrées
+          let classees = rawData.filter(c => {
             const bruteDate = c.date_livraison || c.dateLivraison || c.date || "";
             const dateNettoye = typeof bruteDate === "string" ? bruteDate.substring(0, 10) : "";
             const estAujourdhui = dateNettoye === TODAY;
 
             const statutNettoye = typeof c.status === "string" ? c.status.trim().toLowerCase() : "";
-            const estChargé= statutNettoye === "charged" || statutNettoye === "chargé";
+            const estChargé= statutNettoye === "disponible" || statutNettoye === "available";
 
             return estChargé && estAujourdhui;
           });
 
+          // Fallback : Si aucune commande chargée spécifiquement pour aujourd'hui, prendre toutes les commandes chargées (visibles)
           if (classees.length === 0) {
-            classees = data.filter(c => {
+            classees = rawData.filter(c => {
               const statutNettoye = typeof c.status === "string" ? c.status.trim().toLowerCase() : "";
-              return statutNettoye === "charged" || statutNettoye === "chargé";
+              return statutNettoye === "disponible" || statutNettoye === "available";
             });
           }
 
@@ -67,7 +78,7 @@ export default function OptimisationTourneeView({ user }) {
     }
 
     chargerCommandes();
-  }, []);
+  }, [isOnlyCommercial, user?.nom]); // Ajout des dépendances pour recharger si l'utilisateur change
 
   const optimiserTournee = () => {
     setLoading(true);

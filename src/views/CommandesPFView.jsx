@@ -31,15 +31,16 @@ export default function CommandesPFView({ user, cpf, setCpf, addAudit, lots, art
   const [filterC, setFilterC]       = useState("");
   const [toast, setToast]           = useState(null);
   
-  // ⭐ ÉTAT POUR STOCKER LES MARQUES DE SUPABASE
   const [brands, setBrands] = useState([]);
 
   const roles = user?.roles || [];
   const isCC  = roles.some(r => ["dg","chef_commercial"].includes(r));
   const isCU  = roles.some(r => ["dg","chef_usine"].includes(r));
   const isCom = roles.some(r => ["commercial","chef_commercial","dg"].includes(r));
+  
+  // NOUVEAU : Vérifier si l'utilisateur possède uniquement le rôle commercial de base (sans être chef ou dg)
+  const isOnlyCommercial = roles.includes("commercial") && !roles.includes("chef_commercial") && !roles.includes("dg");
 
-  // ⭐ CHARGEMENT DES MARQUES DEPUIS SUPABASE
   useEffect(() => {
     async function fetchBrands() {
       try {
@@ -53,7 +54,16 @@ export default function CommandesPFView({ user, cpf, setCpf, addAudit, lots, art
     fetchBrands();
   }, []);
 
-  const filtered = cpf.filter(c => {
+  // CORRECTION : Filtrer la liste globale selon l'identité si l'utilisateur est uniquement commercial
+  const visibleCpf = useMemo(() => {
+    if (isOnlyCommercial) {
+      return cpf.filter(c => c.commercial === user?.nom);
+    }
+    return cpf;
+  }, [cpf, isOnlyCommercial, user?.nom]);
+
+  // Filtrage par les champs de recherche/statuts sur les lignes visibles
+  const filtered = visibleCpf.filter(c => {
     const matchS = filterS === "all" || c.status === filterS;
     const matchC = !filterC || c.client.toLowerCase().includes(filterC.toLowerCase()) || c.number.toLowerCase().includes(filterC.toLowerCase());
     return matchS && matchC;
@@ -170,63 +180,66 @@ export default function CommandesPFView({ user, cpf, setCpf, addAudit, lots, art
     }
   };
 
+  // CORRECTION : Les totaux des compteurs s'appuient désormais uniquement sur les lignes visibles par l'utilisateur
   const counts = {
-    all: cpf.length,
-    draft: cpf.filter(c => c.status === "draft").length,
-    submitted: cpf.filter(c => c.status === "submitted").length,
-    validated_chef_commercial: cpf.filter(c => c.status === "validated_chef_commercial").length,
-    validated: cpf.filter(c => c.status === "validated").length,
-    delivered: cpf.filter(c => c.status === "delivered").length,
+    all: visibleCpf.length,
+    draft: visibleCpf.filter(c => c.status === "draft").length,
+    submitted: visibleCpf.filter(c => c.status === "submitted").length,
+    validated_chef_commercial: visibleCpf.filter(c => c.status === "validated_chef_commercial").length,
+    validated: visibleCpf.filter(c => c.status === "validated").length,
+    delivered: visibleCpf.filter(c => c.status === "delivered").length,
   };
 
   return (
     <div className="space-y-4">
-      {toast && <Toast message={toast.msg} color={toast.color} onDone={() => setToast(null)}/>}
+      {toast && <Toast message={toast.msg} color={toast.color} onDone={() => setToast(null)} />}
 
       <div className="flex items-center justify-between">
         <div><h1 className="text-xl font-bold text-gray-900">Commandes Produits Finis</h1><p className="text-xs text-gray-400 mt-0.5">Workflow: Brouillon → CC → Chef Usine → Planifiée → Production → Disponible → Chargée → Livrée </p></div>
-        <div className="flex gap-2"><ExportFullMenu type="cpf" data={cpf}/>{isCom&&<Btn variant="primary" onClick={() => setShowCreate(true)}>+ Nouvelle commande</Btn>}</div>
+        <div className="flex gap-2"><ExportFullMenu type="cpf" data={filtered} />{isCom && <Btn variant="primary" onClick={() => setShowCreate(true)}>+ Nouvelle commande</Btn>}</div>
       </div>
 
       <div className="grid grid-cols-4 gap-3">
-        {[["⏳ À valider CC", cpf.filter(c=>c.status==="submitted").length, "#3b82f6"],
-          ["⚡ Critiques",    cpf.filter(c=>c.priorite==="critique").length, "#dc2626"],
-          ["📅 Planifiées",   cpf.filter(c=>c.status==="planned").length,    "#059669"],
-          ["✓ Livrées",      cpf.filter(c=>c.status==="delivered").length,  "#6b7280"]].map(([l,v,c])=>(
-          <Card key={l} className="p-4"><div className="text-3xl font-black mb-1" style={{color:c}}>{v}</div><div className="text-xs text-gray-500">{l}</div></Card>
+        {[["⏳ À valider CC", visibleCpf.filter(c => c.status === "submitted").length, "#3b82f6"],
+          ["⚡ Critiques",    visibleCpf.filter(c => c.priorite === "critique").length, "#dc2626"],
+          ["📅 Planifiées",   visibleCpf.filter(c => c.status === "planned").length,    "#059669"],
+          ["✓ Livrées",      visibleCpf.filter(c => c.status === "delivered").length,  "#6b7280"]].map(([l, v, c]) => (
+          <Card key={l} className="p-4"><div className="text-3xl font-black mb-1" style={{ color: c }}>{v}</div><div className="text-xs text-gray-500">{l}</div></Card>
         ))}
       </div>
 
       <div className="flex gap-2 flex-wrap items-center">
-        {[["all","Toutes"],["draft","Brouillon"],["submitted","Soumises"],["validated_chef_commercial","Validées CC"],["validated","Validées CU"],["delivered","Livrées"]].map(([k,l])=>(
-          <button key={k} onClick={()=>setFilterS(k)} className={`px-3 py-1.5 rounded-xl text-xs font-semibold border ${filterS===k?"bg-blue-600 text-white border-blue-600":"bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}>
+        {[["all", "Toutes"], ["draft", "Brouillon"], ["submitted", "Soumises"], ["validated_chef_commercial", "Validées CC"], ["validated", "Validées CU"], ["delivered", "Livrées"]].map(([k, l]) => (
+          <button key={k} onClick={() => setFilterS(k)} className={`px-3 py-1.5 rounded-xl text-xs font-semibold border ${filterS === k ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}>
             {l} {counts[k] !== undefined && <span className="ml-1 opacity-70">{counts[k]}</span>}
           </button>
         ))}
-        <input value={filterC} onChange={e=>setFilterC(e.target.value)} placeholder="Client / N°..." className="border border-gray-200 rounded-xl px-3 py-1.5 text-xs ml-auto min-h-[36px] focus:outline-none focus:ring-2 focus:ring-blue-400"/>
+        <input value={filterC} onChange={e => setFilterC(e.target.value)} placeholder="Client / N°..." className="border border-gray-200 rounded-xl px-3 py-1.5 text-xs ml-auto min-h-[36px] focus:outline-none focus:ring-2 focus:ring-blue-400" />
       </div>
 
       {/* Table */}
       <Card>
         <div className="overflow-x-auto">
-          <table className="w-full text-xs" style={{minWidth:800}}>
-            <thead><tr className="border-b bg-gray-50">
-              {["N°","Client","Type","Priorité","Livraison / Horaire","Commercial","Total","Statut","Actions"].map(h=><th key={h} className="px-3 py-2.5 text-left font-bold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>)}
-            </tr></thead>
+          <table className="w-full text-xs" style={{ minWidth: 800 }}>
+            <thead>
+              <tr className="border-b bg-gray-50">
+                {["N°", "Client", "Type", "Priorité", "Livraison / Horaire", "Commercial", "Total", "Statut", "Actions"].map(h => <th key={h} className="px-3 py-2.5 text-left font-bold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>)}
+              </tr>
+            </thead>
             <tbody>
-              {filtered.map((c,i) => {
+              {filtered.map((c, i) => {
                 const nextAction = STATUS_NEXT[c.status];
                 const canAdvance = nextAction && nextAction.roles.some(r => roles.includes(r) || roles.includes("dg"));
-                const s = STATUTS[c.status] || {l:c.status,c:"#94a3b8",bg:"#f1f5f9"};
+                const s = STATUTS[c.status] || { l: c.status, c: "#94a3b8", bg: "#f1f5f9" };
                 const currentCreneau = c.creneauHoraire || c.creneau_horaire || "not_defined";
 
                 return (
-                  <tr key={c.id} className={`border-b hover:bg-gray-50/80 ${i%2?"bg-gray-50/30":""}`}>
+                  <tr key={c.id} className={`border-b hover:bg-gray-50/80 ${i % 2 ? "bg-gray-50/30" : ""}`}>
                     <td className="px-3 py-3 font-bold text-blue-700 font-mono">{c.number}</td>
                     <td className="px-3 py-3 font-semibold">{c.client}</td>
-                    <td className="px-3 py-3 text-gray-600">{TYPES[c.type]||c.type}</td>
-                    <td className="px-3 py-3">
-                      <span className={`font-bold text-xs px-2 py-0.5 rounded-full ${c.priorite==="critique"?"bg-red-100 text-red-800":c.priorite==="urgent"?"bg-amber-100 text-amber-800":"bg-gray-100 text-gray-600"}`}>{PRIORITES[c.priorite]||c.priorite}</span>
+                    <td className="px-3 py-3 text-gray-600">{TYPES[c.type] || c.type}</td>
+                    <td>
+                      <span className={`font-bold text-xs px-2 py-0.5 rounded-full ${c.priorite === "critique" ? "bg-red-100 text-red-800" : c.priorite === "urgent" ? "bg-amber-100 text-amber-800" : "bg-gray-100 text-gray-600"}`}>{PRIORITES[c.priorite] || c.priorite}</span>
                     </td>
                     <td className="px-3 py-3">
                       <div className="font-medium text-gray-700">{c.dateLivraison || c.date_livraison || "—"}</div>
@@ -235,13 +248,13 @@ export default function CommandesPFView({ user, cpf, setCpf, addAudit, lots, art
                     <td className="px-3 py-3 text-gray-600">{c.commercial}</td>
                     <td className="px-3 py-3 font-bold">{fmt(c.total)} DT</td>
                     <td className="px-3 py-3">
-                      <span className="px-2 py-0.5 rounded-full text-xs font-bold" style={{color:s.c,background:s.bg,border:`1px solid ${s.c}30`}}>{s.l}</span>
+                      <span className="px-2 py-0.5 rounded-full text-xs font-bold" style={{ color: s.c, background: s.bg, border: `1px solid ${s.c}30` }}>{s.l}</span>
                     </td>
                     <td className="px-3 py-3">
                       <div className="flex gap-1">
                         <Btn variant="secondary" size="xs" onClick={() => setShowDetail(c)}>Voir</Btn>
                         {canAdvance && <Btn variant="success" size="xs" onClick={() => advance(c, nextAction.nextStatus)}>{nextAction.label}</Btn>}
-                        {c.status==="submitted"&&isCC && <Btn variant="danger" size="xs" onClick={() => reject(c)}>✗</Btn>}
+                        {c.status === "submitted" && isCC && <Btn variant="danger" size="xs" onClick={() => reject(c)}>✗</Btn>}
                       </div>
                     </td>
                   </tr>
@@ -260,36 +273,36 @@ export default function CommandesPFView({ user, cpf, setCpf, addAudit, lots, art
             <div className="grid grid-cols-2 gap-4 text-sm">
               {[
                 ["Client", showDetail.client],
-                ["Type", TYPES[showDetail.type]||showDetail.type],
-                ["Priorité", PRIORITES[showDetail.priorite]||showDetail.priorite],
+                ["Type", TYPES[showDetail.type] || showDetail.type],
+                ["Priorité", PRIORITES[showDetail.priorite] || showDetail.priorite],
                 ["Date livraison", showDetail.dateLivraison || showDetail.date_livraison || "—"],
                 ["Créneau Horaire", CRENEAUX[showDetail.creneauHoraire || showDetail.creneau_horaire || "not_defined"]],
                 ["Commercial", showDetail.commercial],
                 ["Total", `${fmt(showDetail.total)} DT`]
-              ].map(([l,v])=>(
+              ].map(([l, v]) => (
                 <div key={l}><div className="text-xs font-bold text-gray-400 uppercase">{l}</div><div className="font-semibold mt-0.5">{v}</div></div>
               ))}
             </div>
             <div>
               <div className="text-xs font-bold text-gray-400 uppercase mb-2">Articles commandés</div>
               <div className="space-y-1">
-                {(showDetail.items||[]).map((item,i)=>{
-                  const a = arts.find(x=>x.id===item.artId);
+                {(showDetail.items || []).map((item, i) => {
+                  const a = arts.find(x => x.id === item.artId);
                   return <div key={i} className="flex justify-between items-center p-2.5 bg-gray-50 rounded-xl text-sm">
                     <span className="font-bold">{a?.code || item.artId}</span>
                     <span>{a?.name}</span>
                     <span className="font-bold">{fmt(item.qty)} pcs</span>
-                    <span className="text-gray-500">{((a?.price||item.px||0)*item.qty).toFixed(0)} DT</span>
+                    <span className="text-gray-500">{((a?.price || item.px || 0) * item.qty).toFixed(0)} DT</span>
                   </div>;
                 })}
               </div>
             </div>
             <div className="flex gap-2 pt-2 border-t border-gray-100">
-              {STATUS_NEXT[showDetail.status]?.roles.some(r=>roles.includes(r)||roles.includes("dg"))&&(
-                <Btn variant="success" onClick={()=>{advance(showDetail,STATUS_NEXT[showDetail.status].nextStatus);setShowDetail(null);}}>✓ {STATUS_NEXT[showDetail.status]?.label}</Btn>
+              {STATUS_NEXT[showDetail.status]?.roles.some(r => roles.includes(r) || roles.includes("dg")) && (
+                <Btn variant="success" onClick={() => { advance(showDetail, STATUS_NEXT[showDetail.status].nextStatus); setShowDetail(null); }}>✓ {STATUS_NEXT[showDetail.status]?.label}</Btn>
               )}
-              {showDetail.status==="submitted"&&isCC && <Btn variant="danger" onClick={()=>reject(showDetail)}>✗ Refuser</Btn>}
-              <Btn variant="secondary" onClick={()=>setShowDetail(null)}>Fermer</Btn>
+              {showDetail.status === "submitted" && isCC && <Btn variant="danger" onClick={() => reject(showDetail)}>✗ Refuser</Btn>}
+              <Btn variant="secondary" onClick={() => setShowDetail(null)}>Fermer</Btn>
             </div>
           </div>
         )}
@@ -297,15 +310,12 @@ export default function CommandesPFView({ user, cpf, setCpf, addAudit, lots, art
 
       {/* Modal création */}
       <Modal open={showCreate} onClose={() => setShowCreate(false)} title="Nouvelle Commande PF" maxWidth="max-w-xl">
-        {/* ⭐ TRANSFERT DE LA PROPS BRANDS DEPUIS LE FETCH SUPABASE */}
-        <CreateCPFForm clients={clients} arts={arts} brands={brands} onSave={createCPF} onClose={()=>setShowCreate(false)}/>
+        <CreateCPFForm clients={clients} arts={arts} brands={brands} onSave={createCPF} onClose={() => setShowCreate(false)} />
       </Modal>
     </div>
   );
 }
 
-// ── Create CPF Form Modifié avec Filtrage par Marque (Bdd relationnelle) ─────────────────────────────────────────────
-// ── Create CPF Form Alignée sur les colonnes Supabase ─────────────────────────────────────────────
 function CreateCPFForm({ clients, arts, brands = [], onSave, onClose }) {
   // 🏷️ ID de la marque sélectionnée (reçu du select HTML sous forme de String)
   const [selectedBrandId, setSelectedBrandId] = useState("");
@@ -375,7 +385,7 @@ function CreateCPFForm({ clients, arts, brands = [], onSave, onClose }) {
   const addItem = () => setF(x => ({ ...x, items: [...x.items, { artId: "", qty: "" }] }));
   const removeItem = (i) => setF(x => ({ ...x, items: x.items.filter((_, idx) => idx !== i) }));
   
-  // ⭐ Correction du calcul total : Remplacement de a.price par a.unit_price
+
   const total = f.items.reduce((s, i) => {
     const a = arts.find(x => x.id === i.artId);
     return s + (a?.unit_price || a?.price || 0) * (parseInt(i.qty) || 0);

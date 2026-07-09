@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { sb } from "../supabaseClient.js";
 import { Card, Btn, Modal, Input, Toast } from "../components/ui.jsx";
-import { ARTS, FOURNISSEURS_DATA, fmt } from "../data/demoData.js";
+import { ARTS, fmt } from "../data/demoData.js";
 
 const INIT_PRIX = ARTS.map(a => ({
   artId: a.id, code: a.code, name: a.name, prixBase: a.price,
@@ -9,18 +9,8 @@ const INIT_PRIX = ARTS.map(a => ({
   historique: [
     { date:"2026-01-01", prix:a.price * 0.95, modifPar:"Direction", raison:"Révision début d'année" },
     { date:"2026-03-01", prix:a.price * 0.98, modifPar:"Direction", raison:"Hausse matières premières" },
-    { date:"2026-05-01", prix:a.price,         modifPar:"Direction", raison:"Tarif en vigueur" },
+    { date:"2026-05-01", prix:a.price,          modifPar:"Direction", raison:"Tarif en vigueur" },
   ],
-}));
-
-const INIT_TARIFS_MP = FOURNISSEURS_DATA.map((f,i) => ({
-  id:     f.id,
-  fourn:  f.name,
-  matiere: f.matieres?.[0] || "Matière",
-  prixActuel: 0.85 + i * 0.1,
-  unite: "kg",
-  dlc_contrat: "2026-12-31",
-  historique: [{ date:"2026-01-01", prix:0.80+i*0.1, raison:"Négociation annuelle" }],
 }));
 
 export default function PrixView({ user, addAudit, arts: artsProp = [], onSaved }) {
@@ -31,10 +21,44 @@ export default function PrixView({ user, addAudit, arts: artsProp = [], onSaved 
         historique: [{ date: new Date().toISOString().slice(0,10), prix: a.price || 0, modifPar: "Système", raison: "Prix initial" }],
       }))
     : INIT_PRIX;
-  const [prix,      setPrix]      = useState(() => initFromArts(artsProp));
-  const [tarifsMP,  setTarifsMP]  = useState(INIT_TARIFS_MP);
 
-  // Reload when Supabase products arrive after mount
+  const [prix, setPrix] = useState(() => initFromArts(artsProp));
+  const [tarifsMP, setTarifsMP] = useState([]); // Initialisé vide, sera chargé depuis Supabase
+  const [loadingMP, setLoadingMP] = useState(true);
+
+  const [showEdit, setShowEdit] = useState(null);
+  const [newPrix, setNewPrix] = useState("");
+  const [raison, setRaison] = useState("");
+  const [toast, setToast] = useState(null);
+  const [tab, setTab] = useState("pf");
+
+  const roles = user?.roles || [];
+  const canEdit = roles.some(r => ["dg","finance"].includes(r));
+
+  // Chargement des matières premières depuis Supabase
+  const loadMatieres = async () => {
+    try {
+      setLoadingMP(true);
+      const { data, error } = await sb
+        .from("matieres")
+        .select("*")
+        .order("name");
+
+      if (error) throw error;
+      setTarifsMP(data || []);
+    } catch (error) {
+      console.error("Erreur chargement matières:", error.message);
+      setToast({ msg: "⚠ Impossible de charger les matières premières", color: "#dc2626" });
+    } finally {
+      setLoadingMP(false);
+    }
+  };
+
+  useEffect(() => {
+    loadMatieres();
+  }, []);
+
+  // Synchronisation des produits finis
   useEffect(() => {
     if (artsProp.length > 0) {
       setPrix(prev => artsProp.map(a => {
@@ -46,14 +70,6 @@ export default function PrixView({ user, addAudit, arts: artsProp = [], onSaved 
       }));
     }
   }, [artsProp.length]);
-  const [showEdit,  setShowEdit]  = useState(null);
-  const [newPrix,   setNewPrix]   = useState("");
-  const [raison,    setRaison]    = useState("");
-  const [toast,     setToast]     = useState(null);
-  const [tab,       setTab]       = useState("pf");
-
-  const roles  = user?.roles || [];
-  const canEdit= roles.some(r => ["dg","finance"].includes(r));
 
   const updatePrix = async (artId, prixNew, raisonNote) => {
     const v = parseFloat(prixNew);
@@ -65,7 +81,7 @@ export default function PrixView({ user, addAudit, arts: artsProp = [], onSaved 
     } : p));
     if (addAudit) addAudit(user.nom, roles[0], "UPDATE_PRIX", "prix_pf", artId, `Nouveau prix: ${v.toFixed(3)} DT · ${raisonNote}`);
     setShowEdit(null); setNewPrix(""); setRaison("");
-    // Persist to Supabase
+    
     const isUUID = s => s && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
     if (isUUID(artId)) {
       const { error } = await sb.from("products").update({ unit_price: v }).eq("id", artId);
@@ -80,16 +96,31 @@ export default function PrixView({ user, addAudit, arts: artsProp = [], onSaved 
     }
   };
 
-  const updatePrixMP = (id, prixNew, raisonNote) => {
+  // Mise à jour du prix MP persistée sur Supabase
+  const updatePrixMP = async (id, prixNew, raisonNote) => {
     const v = parseFloat(prixNew);
     if (isNaN(v) || v <= 0) return;
-    setTarifsMP(ts => ts.map(t => t.id === id ? {
-      ...t, prixActuel:v,
-      historique:[...t.historique, {date:new Date().toISOString().slice(0,10),prix:v,raison:raisonNote}]
-    } : t));
-    addAudit(user.nom, roles[0], "UPDATE_PRIX_MP", "prix_mp", id, `Nouveau prix: ${v.toFixed(3)} DT/kg · ${raisonNote}`);
-    setToast({ msg:`✅ Tarif MP mis à jour`, color:"#059669" });
-    setShowEdit(null); setNewPrix(""); setRaison("");
+
+    try {
+      // Met à jour la colonne pricePerKg ajoutée
+      const { error } = await sb
+        .from("matieres")
+        .update({ pricePerKg: v })
+        .eq("id", id);
+
+      if (error) throw error;
+
+      // Met à jour l'état de l'interface locale
+      setTarifsMP(ts => ts.map(t => t.id === id ? { ...t, pricePerKg: v } : t));
+      
+      if (addAudit) addAudit(user.nom, roles[0], "UPDATE_PRIX_MP", "prix_mp", id, `Nouveau prix: ${v.toFixed(3)} DT/kg · ${raisonNote}`);
+      setToast({ msg:`✅ Tarif MP mis à jour sur la base`, color:"#059669" });
+    } catch (error) {
+      console.error("Erreur SQL update:", error.message);
+      setToast({ msg:`❌ Erreur Supabase : ${error.message}`, color:"#dc2626" });
+    } finally {
+      setShowEdit(null); setNewPrix(""); setRaison("");
+    }
   };
 
   return (
@@ -97,13 +128,13 @@ export default function PrixView({ user, addAudit, arts: artsProp = [], onSaved 
       {toast && <Toast message={toast.msg} color={toast.color} onDone={() => setToast(null)}/>}
 
       <div className="flex items-center justify-between">
-        <div><h1 className="text-xl font-bold text-gray-900">Tarifs & Prix</h1><p className="text-xs text-gray-400 mt-0.5">Prix PF · Tarifs MP · Historique · Simulation marge</p></div>
+        <div><h1 className="text-xl font-bold text-gray-900">Coût Produit Fini</h1><p className="text-xs text-gray-400 mt-0.5">Prix PF · Tarifs MP · Historique · Simulation marge</p></div>
       </div>
 
       {/* Tabs */}
       <div className="flex gap-2">
-        {[["pf","Produits Finis"],["mp","Matières Premières"]].map(([k,l])=>(
-          <button key={k} onClick={() => setTab(k)} className={`px-4 py-2 rounded-xl text-sm font-bold border ${tab===k?"bg-blue-600 text-white border-blue-600":"bg-white text-gray-600 border-gray-200"}`}>{l}</button>
+        {[["pf","Produits Finis"],["mp","Matières Premières"]].map(([k,l]) => (
+          <button key={k} onClick={() => setTab(k)} className={`px-4 py-2 rounded-xl text-sm font-bold border ${tab===k?"bg-blue-600 text-white border-blue-600" : "bg-white text-gray-600 border-gray-200"}`}>{l}</button>
         ))}
       </div>
 
@@ -111,9 +142,11 @@ export default function PrixView({ user, addAudit, arts: artsProp = [], onSaved 
         <Card>
           <div className="overflow-x-auto">
             <table className="w-full text-xs" style={{ minWidth:700 }}>
-              <thead><tr className="border-b bg-gray-50">
-                {["Article","Prix HT","TVA 19%","Prix TTC","Marge","Dernier modif.","Actions"].map(h=><th key={h} className="px-3 py-2.5 text-left font-bold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>)}
-              </tr></thead>
+              <thead>
+                <tr className="border-b bg-gray-50">
+                  {["Article","Prix HT","TVA 19%","Prix TTC","Marge","Dernier modif.","Actions"].map(h=><th key={h} className="px-3 py-2.5 text-left font-bold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>)}
+                </tr>
+              </thead>
               <tbody>
                 {prix.map((p,i) => {
                   const ttc   = p.prixBase * (1 + p.tva);
@@ -151,49 +184,54 @@ export default function PrixView({ user, addAudit, arts: artsProp = [], onSaved 
 
       {tab === "mp" && (
         <Card>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs" style={{ minWidth:600 }}>
-              <thead><tr className="border-b bg-gray-50">
-                {["Fournisseur","Matière","Prix actuel","Unité","Contrat jusqu'au","Actions"].map(h=><th key={h} className="px-3 py-2.5 text-left font-bold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>)}
-              </tr></thead>
-              <tbody>
-                {tarifsMP.map((t,i)=>(
-                  <tr key={t.id} className={`border-b hover:bg-gray-50/80 ${i%2?"bg-gray-50/20":""}`}>
-                    <td className="px-3 py-3 font-bold">{t.fourn}</td>
-                    <td className="px-3 py-3">{t.matiere}</td>
-                    <td className="px-3 py-3 font-black">{t.prixActuel.toFixed(3)} DT</td>
-                    <td className="px-3 py-3 text-gray-500">/{t.unite}</td>
-                    <td className="px-3 py-3 text-gray-500">{t.dlc_contrat}</td>
-                    <td className="px-3 py-3">
-                      {canEdit && <Btn variant="primary" size="xs" onClick={() => {setShowEdit({type:"mp",...t});setNewPrix(String(t.prixActuel.toFixed(3)));}}>✏ Modifier</Btn>}
-                    </td>
+          {loadingMP ? (
+            <div className="text-center py-8 text-xs font-semibold text-gray-400">Chargement des matières premières...</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs" style={{ minWidth:600 }}>
+                <thead>
+                  <tr className="border-b bg-gray-50">
+                    {["Matière Première","Prix actuel","Unité","Actions"].map(h=><th key={h} className="px-3 py-2.5 text-left font-bold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>)}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {tarifsMP.map((t,i)=>(
+                    <tr key={t.id} className={`border-b hover:bg-gray-50/80 ${i%2?"bg-gray-50/20":""}`}>
+                      <td className="px-3 py-3 font-medium text-gray-900">{t.name}</td>
+                      <td className="px-3 py-3 font-black text-gray-800">{(t.pricePerKg || 0).toFixed(3)} DT</td>
+                      <td className="px-3 py-3 text-gray-500">/kg</td>
+                      <td className="px-3 py-3">
+                        {canEdit && <Btn variant="primary" size="xs" onClick={() => {setShowEdit({type:"mp",...t});setNewPrix(String((t.pricePerKg || 0).toFixed(3)));}}>✏ Modifier</Btn>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {tarifsMP.length === 0 && <div className="text-center py-6 text-gray-400">Aucune matière première trouvée</div>}
+            </div>
+          )}
         </Card>
       )}
 
       {/* Modal modification prix */}
-      <Modal open={!!showEdit && showEdit.type!=="hist"} onClose={() => setShowEdit(null)} title={`Modifier prix — ${showEdit?.code||showEdit?.fourn}`} maxWidth="max-w-md">
+      <Modal open={!!showEdit && showEdit.type!=="hist"} onClose={() => setShowEdit(null)} title={`Modifier prix — ${showEdit?.code || showEdit?.name}`} maxWidth="max-w-md">
         {showEdit && showEdit.type !== "hist" && (
           <div className="space-y-4">
             <div className="p-3 bg-blue-50 border border-blue-100 rounded-xl text-sm">
-              <strong>Prix actuel:</strong> {(showEdit.prixBase||showEdit.prixActuel||0).toFixed(3)} DT
+              <strong>Prix actuel:</strong> {(showEdit.prixBase || showEdit.pricePerKg || 0).toFixed(3)} DT
             </div>
             <Input label="Nouveau prix (DT) *" type="number" step="0.001" value={newPrix} onChange={e=>setNewPrix(e.target.value)}/>
             {newPrix && (
-              <div className={`p-3 rounded-xl text-sm font-bold text-center ${parseFloat(newPrix)>(showEdit.prixBase||showEdit.prixActuel||0)?"bg-amber-50 text-amber-700":"bg-green-50 text-green-700"}`}>
-                Variation: {parseFloat(newPrix)>=(showEdit.prixBase||showEdit.prixActuel||0)?"+":""}{(((parseFloat(newPrix)||0)-(showEdit.prixBase||showEdit.prixActuel||0))/(showEdit.prixBase||showEdit.prixActuel||1)*100).toFixed(1)}%
+              <div className={`p-3 rounded-xl text-sm font-bold text-center ${parseFloat(newPrix)>(showEdit.prixBase||showEdit.pricePerKg||0)?"bg-amber-50 text-amber-700":"bg-green-50 text-green-700"}`}>
+                Variation: {parseFloat(newPrix)>=(showEdit.prixBase||showEdit.pricePerKg||0)?"+":""}{(((parseFloat(newPrix)||0)-(showEdit.prixBase||showEdit.pricePerKg||0))/(showEdit.prixBase||showEdit.pricePerKg||1)*100).toFixed(1)}%
               </div>
             )}
             <div>
               <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Raison de la modification *</label>
-              <textarea value={raison} onChange={e=>setRaison(e.target.value)} className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none min-h-[70px]" placeholder="Hausse matières premières, négociation fournisseur..."/>
+              <textarea value={raison} onChange={e=>setRaison(e.target.value)} className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none min-h-[70px]" placeholder="Hausse matières premières, re-négociation..."/>
             </div>
             <div className="flex gap-2">
-              <Btn variant="success" className="flex-1" disabled={!newPrix||!raison.trim()} onClick={() => {
+              <Btn variant="success" className="flex-1" disabled={!newPrix || !raison.trim()} onClick={() => {
                 if (showEdit.type === "pf") updatePrix(showEdit.artId, newPrix, raison);
                 else updatePrixMP(showEdit.id, newPrix, raison);
               }}>✓ Mettre à jour</Btn>
@@ -203,11 +241,11 @@ export default function PrixView({ user, addAudit, arts: artsProp = [], onSaved 
         )}
       </Modal>
 
-      {/* Modal historique */}
+      {/* Modal historique (uniquement PF) */}
       <Modal open={!!showEdit && showEdit.type==="hist"} onClose={() => setShowEdit(null)} title={`Historique — ${showEdit?.code}`} maxWidth="max-w-md">
         {showEdit && showEdit.type === "hist" && (
           <div className="space-y-2">
-            {[...showEdit.historique].reverse().map((h,i) => (
+            {showEdit.historique && [...showEdit.historique].reverse().map((h,i) => (
               <div key={i} className={`flex items-center gap-3 p-3 rounded-xl ${i===0?"bg-blue-50 border border-blue-100":"bg-gray-50"}`}>
                 <div className="flex-1">
                   <div className="font-bold text-sm">{h.prix.toFixed(3)} DT</div>

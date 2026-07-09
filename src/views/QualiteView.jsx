@@ -27,7 +27,7 @@ const EMPTY_FORM = {
   notes: "",
 };
 
-export function QualiteView({ toast }) {
+export default function QualiteView({ toast }) {
   const [checks, setChecks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("MP");
