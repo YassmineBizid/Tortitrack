@@ -4,9 +4,9 @@ import { sb } from "../supabaseClient.js";
 
 export default function UsersView({ user, addAudit }) {
   const [users, setUsers] = useState([]);
-  const [roles, setRoles] = useState([]);   // 👈 Chargé depuis la DB
-  const [brands, setBrands] = useState([]); // 👈 Chargé depuis la DB
-  const [zones, setZones] = useState([]);   // 👈 Chargé depuis la DB
+  const [roles, setRoles] = useState([]);   
+  const [brands, setBrands] = useState([]); 
+  const [zones, setZones] = useState([]);   
   
   const [showEdit, setShowEdit] = useState(null);
   const [showNew, setShowNew] = useState(false);
@@ -25,7 +25,6 @@ export default function UsersView({ user, addAudit }) {
       setBrands(bData || []);
       setZones(zData || []);
 
-      // 2. Charger les profils avec jointures
       const { data: uData, error: uErr } = await sb
         .from("user_profiles")
         .select(`
@@ -34,8 +33,11 @@ export default function UsersView({ user, addAudit }) {
           role_code, 
           is_active, 
           email,
+          brand_id,
+          zone_id,
           roles ( label, icon, color ),
-          user_scopes ( brand_id, zone_id, brand:brands(name), zone:zones(name) )
+          brand:brands(name),
+          zone:zones(name)
         `)
         .order("full_name");
 
@@ -46,50 +48,46 @@ export default function UsersView({ user, addAudit }) {
       console.error("[UsersView] Erreur de chargement →", error);
       setToast({ msg: `❌ Erreur DB: ${error.message}`, color: "#dc2626" });
     } finally {
-      setLoading(false);
+      loading(false);
     }
   };
 
-const mapProfile = (r) => {
-  const scope = Array.isArray(r.user_scopes) ? r.user_scopes[0] : r.user_scopes;
-  
-  // Gérer le fait que Supabase retourne parfois les rôles dans un tableau ou un objet direct
-  const roleData = Array.isArray(r.roles) ? r.roles[0] : r.roles;
+  const mapProfile = (r) => {
+    const roleData = Array.isArray(r.roles) ? r.roles[0] : r.roles;
+    const brandData = Array.isArray(r.brand) ? r.brand[0] : r.brand;
+    const zoneData = Array.isArray(r.zone) ? r.zone[0] : r.zone;
 
-  return {
-    id: r.id,
-    nom: (r.full_name || "").split(" ").slice(-1)[0] || r.full_name || "",
-    prenom: (r.full_name || "").split(" ").slice(0, -1).join(" ") || "",
-    email: r.email || "",
-    active: r.is_active !== false,
-    
-    // Extraction sécurisée des données de la table 'roles'
-    role_code:  r.role_code,
-    role_label: roleData?.label || r.role_code || "Sans rôle",
-    role_icon:  roleData?.icon || "👤",
-    role_color: roleData?.color || "#6b7280",
+    return {
+      id: r.id,
+      nom: (r.full_name || "").split(" ").slice(-1)[0] || r.full_name || "",
+      prenom: (r.full_name || "").split(" ").slice(0, -1).join(" ") || "",
+      email: r.email || "",
+      active: r.is_active !== false,
+      
+      role_code:  r.role_code,
+      role_label: roleData?.label || r.role_code || "Sans rôle",
+      role_icon:  roleData?.icon || "👤",
+      role_color: roleData?.color || "#6b7280",
 
-    brand_id: scope?.brand_id || "", 
-    zone_id:  scope?.zone_id || "",
-    brand_name: scope?.brand ? scope.brand.name : "Toutes les marques",
-    zone_name:  scope?.zone ? scope.zone.name : "Toutes les zones",
+      // Récupération directe depuis user_profiles
+      brand_id: r.brand_id || "", 
+      zone_id:  r.zone_id || "",
+      brand_name: brandData ? brandData.name : "Toutes les marques",
+      zone_name:  zoneData ? zoneData.name : "Toutes les zones",
+    };
   };
-};
 
   useEffect(() => { loadAllData(); }, []);
 
   const saveEdit = async (u, selectedRole, selectedBrandId, selectedZoneId) => {
     setToast(null);
     try {
-      // 1. Mise à jour du rôle dans le profil
-      await sb.from("user_profiles").update({ role: selectedRole }).eq("id", u.id);
-
-      // 2. Mise à jour ou insertion du périmètre (Scope)
-      await sb.from("user_scopes").upsert({
-        user_id: u.id,
-        brand_id: selectedBrandId || null, 
-        zone_id: selectedZoneId || null,   
-      }, { onConflict: 'user_id' });
+      // Sauvegarde de tout le périmètre DIRECTEMENT dans user_profiles
+      await sb.from("user_profiles").update({ 
+        role_code: selectedRole, // si ton architecture utilise role_code ou role
+        brand_id: selectedBrandId || null,
+        zone_id: selectedZoneId || null
+      }).eq("id", u.id);
 
       setToast({ msg: "✅ Profil et périmètre mis à jour", color: "#059669" });
       setShowEdit(null);
@@ -120,25 +118,18 @@ const mapProfile = (r) => {
       if (error) throw error;
       const userId = data?.user?.id;
 
-      // 2. Création du profil utilisateur lié à notre table roles
+      // 2. Création complète dans user_profiles incluant brand_id et zone_id
       await sb.from("user_profiles").upsert({
         id: userId,
         full_name: form.nom,
         email: form.email,
-        role_code: form.role, // Écrit dans la nouvelle colonne validée
+        role_code: form.role, 
         is_active: true,
+        brand_id: (form.role === "chef_commercial" || form.role === "commercial") ? (form.brandId || null) : null,
+        zone_id: form.role === "commercial" ? (form.zoneId || null) : null
       });
 
-      // 3. Insertion du périmètre (Scope) si le rôle l'exige
-      if (form.role === "chef_commercial" || form.role === "commercial") {
-        await sb.from("user_scopes").insert({
-          user_id: userId,
-          brand_id: form.brandId || null,
-          zone_id: form.role === "commercial" ? (form.zoneId || null) : null // Zone uniquement pour commercial
-        });
-      }
-
-      setToast({ msg: `✅ Utilisateur et périmètre créés avec succès !`, color: "#059669" });
+      setToast({ msg: `✅ Utilisateur créé avec succès !`, color: "#059669" });
       setShowNew(false);
       loadAllData();
     } catch (e) {
@@ -158,50 +149,44 @@ const mapProfile = (r) => {
         <Btn variant="primary" onClick={() => setShowNew(true)}>+ Nouvel utilisateur</Btn>
       </div>
 
-<Card>
-  <div className="divide-y divide-gray-50">
-    {users.map(u => (
-      <div key={u.id} className={`flex items-center gap-4 p-4 ${!u.active ? "opacity-50" : ""}`}>
-        <div className="w-10 h-10 rounded-xl flex items-center justify-center font-black text-white text-sm flex-shrink-0" style={{ background: u.role_color || "#999" }}>
-          {(u.prenom||u.nom||"?")[0].toUpperCase()}
-        </div>
-        
-        <div className="flex-1 min-w-0">
-          <div className="font-bold text-sm">{u.prenom} {u.nom}</div>
-          <div className="text-xs text-gray-400">{u.email}</div>
-          
-          <div className="flex gap-1 flex-wrap mt-1 items-center">
-            {/* Badge Rôle Dynamique Sécurisé */}
-            <span className="text-xs font-bold px-2 py-0.5 rounded-full border" style={{ color: u.role_color, borderColor: u.role_color + "30", background: u.role_color + "12" }}>
-              {u.role_icon} {u.role_label}
-            </span>
+      <Card>
+        <div className="divide-y divide-gray-50">
+          {users.map(u => (
+            <div key={u.id} className={`flex items-center gap-4 p-4 ${!u.active ? "opacity-50" : ""}`}>
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center font-black text-white text-sm flex-shrink-0" style={{ background: u.role_color || "#999" }}>
+                {(u.prenom||u.nom||"?")[0].toUpperCase()}
+              </div>
+              
+              <div className="flex-1 min-w-0">
+                <div className="font-bold text-sm">{u.prenom} {u.nom}</div>
+                <div className="text-xs text-gray-400">{u.email}</div>
+                
+                <div className="flex gap-1 flex-wrap mt-1 items-center">
+                  <span className="text-xs font-bold px-2 py-0.5 rounded-full border" style={{ color: u.role_color, borderColor: u.role_color + "30", background: u.role_color + "12" }}>
+                    {u.role_icon} {u.role_label}
+                  </span>
 
-            {/* Badges de Périmètre Dynamiques */}
-            <Bdg color={u.brand_name.includes("Toutes") ? "gray" : "purple"}>🏷️ {u.brand_name}</Bdg>
-            <Bdg color={u.zone_name.includes("Toutes") ? "gray" : "blue"}>📍 {u.zone_name}</Bdg>
-          </div>
+                  <Bdg color={u.brand_name.includes("Toutes") ? "gray" : "purple"}  >🏷️ {u.brand_name}</Bdg>
+                  <Bdg color={u.zone_name.includes("Toutes") ? "gray" : "blue"}>📍 {u.zone_name}</Bdg>
+                </div>
+              </div>
+              
+              <div className="flex gap-2 flex-shrink-0">
+                <Btn variant="secondary" size="sm" onClick={() => setShowEdit(u)}>✏ Modifier</Btn>
+                <Btn variant={u.active ? "ghost" : "secondary"} size="sm" onClick={() => toggleActive(u.id)}>{u.active ? "Désactiver" : "Réactiver"}</Btn>
+              </div>
+            </div>
+          ))}
         </div>
-        
-        <div className="flex gap-2 flex-shrink-0">
-          <Btn variant="secondary" size="sm" onClick={() => setShowEdit(u)}>✏ Modifier</Btn>
-          <Btn variant={u.active ? "ghost" : "secondary"} size="sm" onClick={() => toggleActive(u.id)}>{u.active ? "Désactiver" : "Réactiver"}</Btn>
-        </div>
-      </div>
-    ))}
-  </div>
-</Card>
+      </Card>
 
-      {/* Modal édition rôles et périmètre */}
       <Modal open={!!showEdit} onClose={() => setShowEdit(null)} title={`Modifier les accès — ${showEdit?.prenom} ${showEdit?.nom}`} maxWidth="max-w-lg">
         {showEdit && <EditRolesForm u={showEdit} roles={roles} brands={brands} zones={zones} onSave={saveEdit}/>}
       </Modal>
 
-      {/* Modal création utilisateur */}
-       {/* Modal création utilisateur */}
-       <Modal open={showNew} onClose={() => setShowNew(false)} title="Nouvel utilisateur" maxWidth="max-w-lg">
-       {/* On a ajouté brands={brands} et zones={zones} ici ⚙️ */}
+      <Modal open={showNew} onClose={() => setShowNew(false)} title="Nouvel utilisateur" maxWidth="max-w-lg">
          <NewUserForm roles={roles} brands={brands} zones={zones} onSave={addUser}/>
-        </Modal>
+      </Modal>
     </div>
   );
 }
@@ -266,19 +251,16 @@ function EditRolesForm({ u, roles, brands, zones, onSave }) {
 }
 
 // FORMULAIRE CRÉATION UTILISATEUR
-// FORMULAIRE CRÉATION UTILISATEUR DYNAMIQUE
 function NewUserForm({ roles, brands, zones, onSave }) {
   const [f, setF] = useState({ prenom: "", nom: "", email: "", pass: "", role: "" });
   const [brandId, setBrandId] = useState("");
   const [zoneId, setZoneId] = useState("");
   const [saving, setSaving] = useState(false);
   
-  // Initialise le rôle par défaut dès que la liste est chargée depuis la DB
   useEffect(() => {
     if (roles.length > 0 && !f.role) setF(x => ({ ...x, role: roles[0].code }));
   }, [roles]);
 
-  // Réinitialise les sélections si le rôle change (sécurité)
   useEffect(() => {
     if (f.role === "dir_commercial") { setBrandId(""); setZoneId(""); }
     else if (f.role === "chef_commercial") { setZoneId(""); }
@@ -297,7 +279,6 @@ function NewUserForm({ roles, brands, zones, onSave }) {
     setSaving(false);
   };
 
-  // Condition de validation du bouton : vérifie que les champs obligatoires selon le rôle sont remplis
   const isFormInvalid = 
     !f.prenom || 
     !f.nom || 
@@ -321,7 +302,6 @@ function NewUserForm({ roles, brands, zones, onSave }) {
           </select>
         </div>
 
-        {/* Affichage conditionnel de la Marque pour Chef Commercial et Commercial */}
         {(f.role === "chef_commercial" || f.role === "commercial") && (
           <div className="col-span-2">
             <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Marque assignée *</label>
@@ -332,7 +312,6 @@ function NewUserForm({ roles, brands, zones, onSave }) {
           </div>
         )}
 
-        {/* Affichage conditionnel de la Zone UNIQUEMENT pour le Commercial */}
         {f.role === "commercial" && (
           <div className="col-span-2">
             <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Zone assignée *</label>

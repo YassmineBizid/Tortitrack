@@ -42,11 +42,15 @@ export default function StockCamionView({ user, stockCamion, setStockCamion, add
 
   const roles   = user?.roles || [];
   const isQual  = roles.some(r => ["quality","chef_usine","dg"].includes(r));
+  
+  // 🛡️ Détection si l'utilisateur connecté est strictement un commercial
+  const isOnlyCommercial = roles.includes("commercial") && !roles.some(r => ["quality","chef_usine","dg","chef_commercial"].includes(r));
 
   const fetchSupabaseStock = async () => {
     setLoading(true);
     try {
-      const { data, error } = await sb
+      // 1. Initialisation de la requête de base
+      let query = sb
         .from("stock_camion")
         .select(`
           id, vendeur, vehicule, lot_id, art_id, dlc,
@@ -56,10 +60,16 @@ export default function StockCamionView({ user, stockCamion, setStockCamion, add
           production_lots ( lot_number, expiry_date )
         `);
 
+      // 2. 🛡️ FILTRE STRICT COMMERCIAL : N'affiche que son camion s'il n'a pas de droits étendus
+      if (isOnlyCommercial && user?.nom) {
+        query = query.eq("vendeur", user.nom);
+      }
+
+      const { data, error } = await query;
+
       if (error) throw error;
 
       if (data) {
-        // Utilisation d'un accumulateur pour fusionner par [Vendeur + Article]
         const mergedMap = {};
 
         data.forEach(s => {
@@ -68,13 +78,11 @@ export default function StockCamionView({ user, stockCamion, setStockCamion, add
           const lotNum  = s.production_lots?.lot_number || s.lot_id || '—';
           const dlcVal  = s.production_lots?.expiry_date || s.dlc || null;
           
-          // Clé unique combinant le camion (vendeur) et l'article
           const uniqueKey = `${vendeur}_${artCode}`;
 
           if (!mergedMap[uniqueKey]) {
-            // Premier passage : on initialise la ligne
             mergedMap[uniqueKey] = {
-              id: s.id, // Garde l'ID du premier lot trouvé pour les updates
+              id: s.id,
               vendeur: vendeur,
               vehicule: s.vehicule || "—",
               lotCode: lotNum,
@@ -84,13 +92,12 @@ export default function StockCamionView({ user, stockCamion, setStockCamion, add
               qteVendue: s.qte_vendue ?? 0,
               qteRetourClient: s.qte_retour ?? 0,
               qteRestTheo: s.qte_rest_theo ?? 0,
-              qtePhysique: s.qte_physique, // Sera mis à jour globalement ou laissé vide
+              qtePhysique: s.qte_physique,
               nbJoursCamion: s.nb_jours ?? 0,
               statusQC: s.status_qc || "ok",
               dormant: s.dormant || false
             };
           } else {
-            // Doublon détecté : on cumule les valeurs numériques sur la même ligne
             mergedMap[uniqueKey].qteChargee += (s.qte_chargee ?? 0);
             mergedMap[uniqueKey].qteVendue += (s.qte_vendue ?? 0);
             mergedMap[uniqueKey].qteRetourClient += (s.qte_retour ?? 0);
@@ -100,28 +107,24 @@ export default function StockCamionView({ user, stockCamion, setStockCamion, add
               mergedMap[uniqueKey].qtePhysique = (mergedMap[uniqueKey].qtePhysique ?? 0) + s.qte_physique;
             }
             
-            // Pour le lot, on peut combiner les textes pour info s'ils diffèrent
             const newLotNum = s.production_lots?.lot_number || s.lot_id || '—';
             if (newLotNum && newLotNum !== '—' && !mergedMap[uniqueKey].lotCode.includes(newLotNum)) {
               mergedMap[uniqueKey].lotCode += ` / ${newLotNum}`;
             }
             
-            // On garde le statut QC le plus restrictif (si l'un est bloqué, le tout apparaît bloqué)
             if (s.status_qc === "bloque") {
               mergedMap[uniqueKey].statusQC = "bloque";
             }
             
-            // On prend le max des jours passés dans le camion
             if ((s.nb_jours ?? 0) > mergedMap[uniqueKey].nbJoursCamion) {
               mergedMap[uniqueKey].nbJoursCamion = s.nb_jours;
             }
           }
         });
 
-        // Convertir l'objet de fusion en tableau et calculer la valeur restante globale par ligne
         const formattedData = Object.values(mergedMap).map(item => ({
           ...item,
-          valRestante: item.qteRestTheo * 10 // Remplacez 10 par votre prix unitaire réel si disponible
+          valRestante: item.qteRestTheo * 10
         }));
 
         setStockCamion(formattedData);
@@ -135,7 +138,7 @@ export default function StockCamionView({ user, stockCamion, setStockCamion, add
 
   useEffect(() => {
     fetchSupabaseStock();
-  }, []);
+  }, [user]); // Re-déclenche si l'utilisateur change ou se connecte
 
   const isUUID = s => s && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
 
@@ -178,7 +181,6 @@ ${vStock.map(s=>`<tr><td>${s.lotCode}</td><td>${s.artCode}</td><td>${s.dlc?new D
     const w=window.open("","_blank");if(w){w.document.write(html);w.document.close();setTimeout(()=>w.print(),400);}
   };
 
-  // --- FILTRAGE ET REGROUPEMENT PAR CAMION ---
   const filteredStock = stockCamion.filter(s => {
     if (filter === "dormant"  && !isDormant(s))    return false;
     if (filter === "dlc"      && !isDLC_proche(s)) return false;
@@ -187,7 +189,6 @@ ${vStock.map(s=>`<tr><td>${s.lotCode}</td><td>${s.artCode}</td><td>${s.dlc?new D
     return true;
   });
 
-  // Regrouper les lots par Vendeur (Camion)
   const camions = filteredStock.reduce((acc, current) => {
     const key = current.vendeur;
     if (!acc[key]) {
@@ -210,17 +211,21 @@ ${vStock.map(s=>`<tr><td>${s.lotCode}</td><td>${s.artCode}</td><td>${s.dlc?new D
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Suivi des Camions</h1>
-          <p className="text-xs text-gray-400 mt-0.5">Vue globale par véhicule en temps réel</p>
+          <h1 className="text-xl font-bold text-gray-900">
+            {isOnlyCommercial ? "Mon Stock Camion" : "Suivi des Camions"}
+          </h1>
+          <p className="text-xs text-gray-400 mt-0.5">
+            {isOnlyCommercial ? "Inventaire de mon véhicule en temps réel" : "Vue globale par véhicule en temps réel"}
+          </p>
         </div>
-        <Btn variant="secondary" size="sm" onClick={fetchSupabaseStock}>{loading ? "🔄 ..." : "🔄 Actualiser Tout"}</Btn>
+        <Btn variant="secondary" size="sm" onClick={fetchSupabaseStock}>{loading ? "🔄 ..." : "🔄 Actualiser"}</Btn>
       </div>
 
-      {/* KPIs Globaux */}
+      {/* KPIs Globaux - Adaptés selon le rôle */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
-          ["Camions Actifs", Object.keys(camions).length, "#3b82f6"],
-          ["Valeur Globale", `${stockCamion.reduce((s,i)=>s+i.valRestante,0).toFixed(0)} DT`, "#d97706"],
+          [isOnlyCommercial ? "Mon Véhicule" : "Camions Actifs", isOnlyCommercial ? (listeCamions[0]?.vehicule || "Assigné") : Object.keys(camions).length, "#3b82f6"],
+          [isOnlyCommercial ? "Valeur de mon Stock" : "Valeur Globale", `${stockCamion.reduce((s,i)=>s+i.valRestante,0).toFixed(0)} DT`, "#d97706"],
           ["Lots Dormants", stockCamion.filter(isDormant).length, "#dc2626"],
           ["Alerte DLC", stockCamion.filter(isDLC_proche).length, "#dc2626"],
         ].map(([l,v,c])=>(
@@ -238,10 +243,12 @@ ${vStock.map(s=>`<tr><td>${s.lotCode}</td><td>${s.artCode}</td><td>${s.dlc?new D
             <button key={k} onClick={() => setFilter(k)} className={`px-3 py-1.5 rounded-xl text-xs font-bold border ${filter===k?"bg-blue-600 text-white border-blue-600":"bg-white text-gray-600 border-gray-200"}`}>{l}</button>
           ))}
         </div>
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 Filtrer par camion, article, lot..." className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm min-h-[44px] focus:outline-none"/>
+        {!isOnlyCommercial && (
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 Filtrer par camion, article, lot..." className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm min-h-[44px] focus:outline-none"/>
+        )}
       </div>
 
-      {/* Liste des Camions sous forme de Cartes */}
+      {/* Liste des Camions */}
       {loading ? (
         <div className="text-center py-12 text-xs text-gray-400">Chargement des données...</div>
       ) : (
@@ -250,7 +257,6 @@ ${vStock.map(s=>`<tr><td>${s.lotCode}</td><td>${s.artCode}</td><td>${s.dlc?new D
             const totalValeur = camion.lots.reduce((s, i) => s + i.valRestante, 0);
             return (
               <Card key={camion.vendeur} className="overflow-hidden border border-gray-200 shadow-sm">
-                {/* Entête de la Carte Camion */}
                 <div className="bg-gray-50 px-4 py-3 border-b border-gray-100 flex items-center justify-between flex-wrap gap-2">
                   <div className="flex items-center gap-3">
                     <div className="text-xl">🚚</div>
@@ -267,7 +273,6 @@ ${vStock.map(s=>`<tr><td>${s.lotCode}</td><td>${s.artCode}</td><td>${s.dlc?new D
                   </div>
                 </div>
 
-                {/* Tableau interne pour les lots du camion */}
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs text-left">
                     <thead>
@@ -335,7 +340,7 @@ ${vStock.map(s=>`<tr><td>${s.lotCode}</td><td>${s.artCode}</td><td>${s.dlc?new D
               </Card>
             );
           })}
-          {listeCamions.length === 0 && <div className="text-center text-gray-400 py-12 bg-white rounded-2xl border">Aucun camion ou lot trouvé avec les filtres actuels.</div>}
+          {listeCamions.length === 0 && <div className="text-center text-gray-400 py-12 bg-white rounded-2xl border">Aucun lot trouvé dans votre camion actuel.</div>}
         </div>
       )}
 

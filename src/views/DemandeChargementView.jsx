@@ -23,17 +23,18 @@ export default function DemandeChargementView({ user, cpf, lots = [], addAudit, 
   const timeSlots = generateTimeSlots();
 
   const [form, setForm] = useState({ date: TODAY, heure: "08:00", vehiculeId: "", conducteurId: "", conducteur: "", items: [], notes: "" });
-  const [vendors, setVendors] = useState([]); // Contiendra désormais les profils de user_profiles (commerciaux)
+  const [vendors, setVendors] = useState([]);
   const [fleet, setFleet] = useState([]);
-  const [articlesDB, setArticlesDB] = useState([]); // Articles chargés depuis Supabase
+  const [myProfile, setMyProfile] = useState(null); // profil du commercial connecté
+  const [articlesDB, setArticlesDB] = useState([]); 
   const [showIA, setShowIA] = useState(false);
   const [saved, setSaved] = useState([]);
   const [toast, setToast] = useState(null);
   const [selectedCommande, setSelectedCommande] = useState(null);
   const [injectedCommandes, setInjectedCommandes] = useState([]);
 
-  // Détection si l'utilisateur connecté est un commercial ou un chef commercial
-  const isCommercialUser = user?.roles?.includes("commercial") || user?.roles?.includes("chef_commercial");
+  const isCommercialUser = user?.role === "commercial" || user?.role === "chef_commercial"
+    || user?.roles?.includes("commercial") || user?.roles?.includes("chef_commercial");
 
   useEffect(() => {
     // � Chargement des articles depuis Supabase pour avoir les vrais IDs
@@ -50,7 +51,7 @@ export default function DemandeChargementView({ user, cpf, lots = [], addAudit, 
 
     // �� Récupération des vendeurs depuis user_profiles ayant le rôle commercial ou chef_commercial
 sb.from("user_profiles")
-    .select("id, full_name, role")
+    .select("id, full_name, role, vehicle_id, vehicle_plate")
     .in("role", ["commercial", "chef_commercial"]) // 👈 Utilisation de .in() au lieu du .or() complexe
     .order("full_name")
     .then(({ data, error }) => {
@@ -59,7 +60,9 @@ sb.from("user_profiles")
         const formattedVendors = data.map(v => ({
           id: v.id,
           name: v.full_name,
-          code: v.role === "chef_commercial" ? "CHEF" : "COMM"
+          code: v.role === "chef_commercial" ? "CHEF" : "COMM",
+          vehicle_id: v.vehicle_id || null,
+          vehicle_plate: v.vehicle_plate || "",
         }));
         setVendors(formattedVendors);
       } else if (error) {
@@ -71,17 +74,16 @@ sb.from("user_profiles")
       .select("id,immat,type,cap_kg,cap_m3,commercial,status")
       .order("immat")
       .then(({ data, error }) => {
-        if (!error) {
-          setFleet((data || []).map(v => ({
-            id: v.id,
-            immat: v.immat,
-            type: v.type || "",
-            capKg: v.cap_kg || 0,
-            capM3: v.cap_m3 || 0,
-            commercial: v.commercial || "",
-            status: v.status || "disponible",
-          })));
-        }
+        if (error) { console.error("Erreur chargement flotte:", error); return; }
+        setFleet((data || []).map(v => ({
+          id: v.id,
+          immat: v.immat,
+          type: v.type || "",
+          capKg: v.cap_kg || 0,
+          capM3: v.cap_m3 || 0,
+          commercial: v.commercial || "",
+          status: v.status || "disponible",
+        })));
       });
 
     // Charger les chargements et leurs articles associés
@@ -132,32 +134,77 @@ sb.from("user_profiles")
     });
   }, []);
 
-  // 🔐 Sécurité & Assignation Automatique : Si l'user actif est commercial/chef, il s'auto-assigne
+  // 🔐 Assignation automatique conducteur + véhicule pour les commerciaux
   useEffect(() => {
-    if (isCommercialUser && vendors.length > 0) {
-      const matchingVendor = vendors.find(v => v.id === user.id || v.name?.toLowerCase() === user.nom?.toLowerCase());
-      if (matchingVendor) {
+    if (!isCommercialUser || !user?.id) return;
+
+    sb.from("user_profiles")
+      .select("id, full_name, vehicle_id, vehicle_plate")
+      .eq("id", user.id)
+      .single()
+      .then(({ data, error }) => {
+        if (error) { console.error("Profil commercial:", error); return; }
+        if (!data) return;
+
+        setMyProfile(data); // stocker pour l'affichage
         setForm(current => ({
           ...current,
-          conducteurId: matchingVendor.id,
-          conducteur: matchingVendor.name
+          conducteurId: data.id,
+          conducteur: data.full_name || user.nom,
+          ...(data.vehicle_id ? { vehiculeId: data.vehicle_id } : {}),
         }));
-      } else {
-        setForm(current => ({
-          ...current,
-          conducteurId: user.id || "commercial-fallback",
-          conducteur: user.nom
-        }));
-      }
+      });
+  }, [user?.id, isCommercialUser]);
+
+  
+  // Fallback : si vehicle_id du profil est null, chercher par nom dans la flotte
+  useEffect(() => {
+    if (!isCommercialUser || form.vehiculeId || !form.conducteur || fleet.length === 0) return;
+    const assignedVehicle = fleet.find(v =>
+      v.commercial?.toLowerCase() === form.conducteur.toLowerCase()
+    );
+    if (assignedVehicle) {
+      setForm(current => ({ ...current, vehiculeId: assignedVehicle.id }));
     }
-  }, [vendors, user, isCommercialUser]);
+  }, [form.conducteur, form.vehiculeId, fleet, isCommercialUser]);
 
   const up = (key, value) => {
     setForm(current => ({ ...current, [key]: value }));
   };
 
-  const vehicle = fleet.find(v => v.id === form.vehiculeId);
+  const vehicleOptions = fleet.length > 0
+    ? fleet
+    : Array.from(
+        new Map(
+          (vendors || [])
+            .filter(v => v.vehicle_id || v.vehicle_plate)
+            .map(v => {
+              const key = v.vehicle_id || `plate:${String(v.vehicle_plate || "").toLowerCase()}`;
+              return [
+                key,
+                {
+                  id: v.vehicle_id || key,
+                  immat: v.vehicle_plate || "Véhicule assigné",
+                  type: "Affecté",
+                  capKg: 0,
+                  status: "assigné",
+                },
+              ];
+            })
+        ).values()
+      );
+
+  const vehicle = vehicleOptions.find(v => String(v.id) === String(form.vehiculeId));
   const selectedVendor = vendors.find(v => v.id === form.conducteurId);
+  const selectedVendorAssignedVehicle = selectedVendor
+    ? vehicleOptions.find(v => String(v.id) === String(selectedVendor.vehicle_id))
+      || (selectedVendor.vehicle_plate
+        ? vehicleOptions.find(v => v.immat?.toLowerCase() === String(selectedVendor.vehicle_plate).toLowerCase())
+        : null)
+    : null;
+  const filteredVehicleOptions = (!isCommercialUser && form.conducteurId)
+    ? (selectedVendorAssignedVehicle ? [selectedVendorAssignedVehicle] : [])
+    : vehicleOptions;
 
   const totalPcs = form.items.reduce((s, i) => s + (parseInt(i.qty) || 0), 0);
   const totalKg = totalPcs * 0.3;
@@ -266,12 +313,14 @@ const injectCommandeItems = (commande) => {
     setInjectedCommandes([]);
 
     try {
+      const isVehiculeUUID = s => s && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+
       await sb.from("demandes_chargement").insert({
         number: num,
         date: form.date || TODAY,
         heure: form.heure || "08:00",
-        vehicule: vehicle?.immat || "",
-        vehicule_id: form.vehiculeId || null,
+        vehicule: vehicle?.immat || selectedVendor?.vehicle_plate || "",
+        vehicule_id: isVehiculeUUID(form.vehiculeId) ? form.vehiculeId : null,
         conducteur: finalConducteurName,
         conducteur_id: (finalConducteurId && isUUID(finalConducteurId)) ? finalConducteurId : null,
         total_pcs: totalPcs,
@@ -409,14 +458,32 @@ const injectCommandeItems = (commande) => {
                   </div>
                 ) : (
                   <select
-                    value={form.conducteurId}
-                    onChange={e => {
-                      const vendor = vendors.find(v => v.id === e.target.value);
-                      up("conducteurId", e.target.value);
-                      up("conducteur", vendor?.name || "");
-                    }}
-                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 min-h-[40px] bg-white font-medium"
-                  >
+  value={form.conducteurId}
+  onChange={e => {
+    const vendor = vendors.find(v => v.id === e.target.value);
+    const vendorName = vendor?.name || "";
+
+    // Source fiable: vehicle_id stocké dans user_profiles
+    const assignedById = vendor?.vehicle_id
+      ? vehicleOptions.find(v => String(v.id) === String(vendor.vehicle_id))
+      : null;
+
+    // Fallback: si vehicle_id absent, tenter via vehicle_plate
+    const assignedByPlate = !assignedById && vendor?.vehicle_plate
+      ? vehicleOptions.find(v => v.immat?.toLowerCase() === String(vendor.vehicle_plate).toLowerCase())
+      : null;
+
+    const assignedVehicle = assignedById || assignedByPlate;
+
+    setForm(current => ({
+      ...current,
+      conducteurId: e.target.value,
+      conducteur: vendorName,
+      vehiculeId: assignedVehicle ? String(assignedVehicle.id) : "" // pré-sélectionne si trouvé, sinon reset
+    }));
+  }}
+  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 min-h-[40px] bg-white font-medium"
+>
                     <option value="">Sélectionner un commercial...</option>
                     {vendors.map(v => (
                       <option key={v.id} value={v.id}>{v.name} ({v.code})</option>
@@ -427,18 +494,41 @@ const injectCommandeItems = (commande) => {
 
               <div className="flex flex-col gap-1.5 md:col-span-2">
                 <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Véhicule *</label>
-                <select
-                  value={form.vehiculeId}
-                  onChange={e => up("vehiculeId", e.target.value)}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 min-h-[40px] bg-white"
-                >
-                  <option value="">Sélectionner...</option>
-                  {fleet.map(v => (
-                    <option key={v.id} value={v.id}>
-                      {v.immat} — {v.type || "Véhicule"} — {v.capKg} kg · {v.status}
-                    </option>
-                  ))}
-                </select>
+                {isCommercialUser ? (
+                  <div className="w-full border border-blue-200 bg-blue-50 text-blue-800 font-semibold rounded-xl px-3 py-2 text-sm min-h-[40px] flex items-center gap-2">
+                    🚚 {myProfile?.vehicle_plate || form.vehiculeId
+                      ? (fleet.find(v => v.id === form.vehiculeId)?.immat || myProfile?.vehicle_plate || "Véhicule assigné")
+                      : <span className="text-amber-600 font-normal">Aucun véhicule assigné — contactez votre responsable</span>}
+                    {form.vehiculeId && <span className="text-[10px] bg-blue-200 text-blue-700 px-2 py-0.5 rounded-md font-bold uppercase ml-auto">Assigné</span>}
+                  </div>
+                ) : (
+                  <>
+                    <select
+                      value={form.vehiculeId}
+                      onChange={e => up("vehiculeId", e.target.value)}
+                      disabled={!form.conducteurId}
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 min-h-[40px] bg-white"
+                    >
+                      <option value="">
+                        {!form.conducteurId
+                          ? "Sélectionner d'abord un commercial…"
+                          : filteredVehicleOptions.length === 0
+                            ? "Aucun véhicule assigné"
+                            : "Véhicule du commercial sélectionné"}
+                      </option>
+                      {filteredVehicleOptions.map(v => (
+                        <option key={v.id} value={String(v.id)}>
+                          {v.immat} — {v.type || "Véhicule"} — {v.capKg} kg · {v.status}
+                        </option>
+                      ))}
+                    </select>
+                    {form.conducteurId && filteredVehicleOptions.length === 0 && (
+                      <p className="text-xs text-amber-600 mt-1">
+                        ⚠️ Aucun véhicule n'est assigné à ce commercial dans user_profiles.
+                      </p>
+                    )}
+                  </>
+                )}
               </div>
             </div>
           </Card>

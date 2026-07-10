@@ -4,26 +4,26 @@ import { Card, Btn, Input, Modal, Toast } from "../components/ui.jsx";
 import { Ico } from "../components/Ico";
 
 export function SettingsView() {
-  const [vendors, setVendors] = useState([]);
   const [flotte, setFlotte] = useState([]);
   const [machines, setMachines] = useState([]); 
   const [userProfiles, setUserProfiles] = useState([]); 
   const [settings, setSettings] = useState({ gm_email: "direction@btfood.tn", return_alert_pct: "3", dlc_alert_days: "3" });
   const [panel, setPanel] = useState(null);
   
-  
   const [brandsList, setBrandsList] = useState([]);
   const [zonesList, setZonesList] = useState([]);
 
   const [vForm, setVForm] = useState({ 
-  code: "", 
-  name: "", 
-  phone: "", 
-  vehicle_id: "", 
-  vehicle_plate: "", 
-  zone_id: "",  
-  brand_id: "", 
-  user_profile_id: "" 
+    id: "", 
+    full_name: "", 
+    email: "",
+    password: "",
+    phone: "", 
+    vehicle_id: "", 
+    vehicle_plate: "", 
+    zone_id: "",  
+    brand_id: "",
+    is_active: true
   });
   const [fForm, setFForm] = useState({ immat: "", type: "", cap_kg: 0, cap_m3: 0, commercial: "", status: "disponible" });
   const [mForm, setMForm] = useState({ code: "", name: "", type: "", status: "operationnel", locationZone: "", lastMaintenance: "", nextMaintenance: "" });
@@ -32,15 +32,11 @@ export function SettingsView() {
   const [toast, setToast] = useState(null);
   const [activeTab, setActiveTab] = useState("general");
 
-  // Liste des marques fixes de l'entreprise (à adapter si dynamique)
-  const BRANDS = ["Gourmandise", "Chahia", "Délice", "Sidi Ali", "Autre"];
-
   const showToast = (message, color = "#111827") => setToast({ message, color });
 
   const load = async () => {
     setLoading(true);
     const [
-      { data: vendorsData }, 
       { data: flotteData }, 
       { data: machinesData }, 
       { data: settingsData },
@@ -48,16 +44,14 @@ export function SettingsView() {
       { data: brandsData }, 
       { data: zonesData }
     ] = await Promise.all([
-      sb.from("vendors").select("*").eq("is_active", true).order("name"),
       sb.from("flotte").select("*").order("immat"),
       sb.from("machines").select("*").order("name"), 
       sb.from("app_settings").select("key,value"),
-      sb.from("user_profiles").select("id, full_name, email, phone").eq("role", "commercial").order("full_name"),
+      sb.from("user_profiles").select("*").eq("role", "commercial").eq("is_active", true).order("full_name"),
       sb.from("brands").select("id, name").order("name"),
       sb.from("zones").select("id, name").order("name")
     ]);
 
-    setVendors(vendorsData || []);
     setFlotte(flotteData || []);
     setMachines(machinesData || []); 
     setUserProfiles(profilesData || []);
@@ -74,28 +68,13 @@ export function SettingsView() {
     showToast("✅ Paramètre enregistré", "#059669");
   };
 
-  /* --- ACTIONS VENDEURS --- */
-  const handleProfileChange = (profileId) => {
-    if (!profileId) {
-      setVForm(f => ({ ...f, user_profile_id: "", name: "", phone: "" }));
-      return;
-    }
-    const profile = userProfiles.find(p => String(p.id) === String(profileId));
-    if (profile) {
-      setVForm(f => ({
-        ...f,
-        user_profile_id: profileId,
-        name: profile.full_name || f.name,
-        phone: profile.phone || f.phone || ""
-      }));
-    }
-  };
-
-const saveVendor = async () => {
-  if (!vForm.name) { showToast("Nom du vendeur requis", "#dc2626"); return; }
-  // Champs obligatoires uniquement pour l'ajout
+/* --- ACTIONS COMMERCIAUX (USER_PROFILES) --- */
+const saveCommercial = async () => {
+  if (!vForm.full_name) { showToast("Nom du commercial requis", "#dc2626"); return; }
+  if (!vForm.email) { showToast("Email requis", "#dc2626"); return; }
+  
   if (panel.mode === "add") {
-    if (!vForm.user_profile_id) { showToast("Veuillez lier un compte utilisateur", "#dc2626"); return; }
+    if (!vForm.password || vForm.password.length < 6) { showToast("Mot de passe requis (minimum 6 caractères)", "#dc2626"); return; }
     if (!vForm.zone_id) { showToast("Veuillez spécifier la zone d'affectation", "#dc2626"); return; }
     if (!vForm.brand_id) { showToast("Veuillez spécifier la marque exclusive", "#dc2626"); return; }
   }
@@ -109,52 +88,82 @@ const saveVendor = async () => {
       : parseInt(vForm.vehicle_id, 10);
   }
 
+  // 1. Préparation des données du profil
   const payload = {
-    code: vForm.code || `V${Date.now()}`,
-    name: vForm.name,
-    phone: vForm.phone || "",
-    user_profile_id: vForm.user_profile_id || null,
+    full_name: vForm.full_name,
+    email: vForm.email,
+    phone: vForm.phone ? parseFloat(vForm.phone.replace(/\s/g, "")) || null : null,
     brand_id: vForm.brand_id || null,
     zone_id: vForm.zone_id || null,
     vehicle_id: correctVehicleId,
-    vehicle_plate: selectedVehicle ? selectedVehicle.immat : (vForm.vehicle_plate || "")
+    vehicle_plate: selectedVehicle ? selectedVehicle.immat : (vForm.vehicle_plate || ""),
+    role: "commercial",
+    role_code: "commercial",
+    is_active: true
   };
 
   let error = null;
 
   if (panel.mode === "edit") {
-    const vendorId = panel.data.id;
+    const profileId = panel.data.id;
     const { data: updated, error: err } = await sb
-      .from("vendors")
+      .from("user_profiles")
       .update({ ...payload, updated_at: new Date().toISOString() })
-      .eq("id", vendorId)
+      .eq("id", profileId)
       .select();
     error = err;
-    // Aucune ligne modifiée = RLS bloque silencieusement
+    
     if (!err && (!updated || updated.length === 0)) {
-      error = { message: "Modification refusée — permissions insuffisantes (RLS). Vérifiez que la migration 18_fix_vendors_columns.sql a été exécutée." };
+      error = { message: "Modification refusée — permissions insuffisantes (RLS)." };
     }
   } else {
-    const { error: err } = await sb
-      .from("vendors")
-      .insert([payload]);
-    error = err;
+    try {
+      // 2. Création du compte Supabase Auth
+      const { data: authData, error: authErr } = await sb.auth.signUp({
+        email: vForm.email,
+        password: vForm.password,
+        options: { data: { full_name: vForm.full_name, role: "commercial" } },
+      });
+
+      if (authErr) {
+        if (authErr.message?.toLowerCase().includes("already registered")) {
+          throw new Error(`L'email "${vForm.email}" est déjà utilisé. Vérifiez si ce commercial existe déjà dans la liste ou utilisez un autre email.`);
+        }
+        throw authErr;
+      }
+
+      const userId = authData?.user?.id;
+      if (!userId) {
+        // Supabase renvoie user=null quand l'email existe déjà (confirmation email activée)
+        throw new Error(`L'email "${vForm.email}" est déjà associé à un compte existant.`);
+      }
+
+      // 3. Insertion / mise à jour dans user_profiles
+      const { error: upsertErr } = await sb.from("user_profiles").upsert({
+        id: userId,
+        ...payload,
+      });
+      if (upsertErr) throw upsertErr;
+    } catch (err) {
+      error = err;
+    }
   }
 
   if (error) {
     console.error("Erreur de sauvegarde Supabase :", error);
     showToast(`❌ Échec : ${error.message}`, "#dc2626");
   } else {
-    showToast(panel.mode === "edit" ? "✅ Vendeur modifié avec succès" : "✅ Vendeur ajouté avec succès", "#059669");
+    showToast(panel.mode === "edit" ? "✅ Commercial modifié avec succès" : "✅ Commercial créé avec succès", "#059669");
     setPanel(null);
     load();
   }
 };
 
-  const delVendor = async (id) => {
-    if (!confirm("Désactiver ce vendeur ?")) return;
-    await sb.from("vendors").update({ is_active: false }).eq("id", id);
-    showToast("Vendeur désactivé", "#059669"); load();
+  const delCommercial = async (id) => {
+    if (!confirm("Désactiver ce commercial ?")) return;
+    await sb.from("user_profiles").update({ is_active: false }).eq("id", id);
+    showToast("Commercial désactivé", "#059669"); 
+    load();
   };
 
   /* --- ACTIONS FLOTTE --- */
@@ -203,25 +212,25 @@ const saveVendor = async () => {
     showToast("Machine marquée en panne", "#059669"); load();
   };
 
-  const openAddVendor = () => { 
-  setVForm({ code: "", name: "", phone: "", vehicle_id: "", vehicle_plate: "", zone_id: "", brand_id: "", user_profile_id: "" }); 
-  setPanel({ mode: "add", type: "vendor" }); 
+  const openAddCommercial = () => { 
+    setVForm({ full_name: "", email: "", password: "", phone: "", vehicle_id: "", vehicle_plate: "", zone_id: "", brand_id: "", is_active: true }); 
+    setPanel({ mode: "add", type: "commercial" }); 
   };
 
-  const openEditVendor = (vendor) => { 
-  setVForm({ 
-    code: vendor.code || "",
-    name: vendor.name || "", 
-    phone: vendor.phone || "", 
-    vehicle_id: vendor.vehicle_id || "", 
-    vehicle_plate: vendor.vehicle_plate || "", 
-    zone_id: vendor.zone_id || "", 
-    brand_id: vendor.brand_id || "", 
-    user_profile_id: vendor.user_profile_id || "" 
-  }); 
-  // On s'assure que panel.data contient l'ID propre, peu importe son type
-  setPanel({ mode: "edit", type: "vendor", data: { id: vendor.id } }); 
-};
+  const openEditCommercial = (profile) => { 
+    setVForm({ 
+      id: profile.id,
+      full_name: profile.full_name || "", 
+      email: profile.email || "",
+      phone: profile.phone || "", 
+      vehicle_id: profile.vehicle_id || "", 
+      vehicle_plate: profile.vehicle_plate || "", 
+      zone_id: profile.zone_id || "", 
+      brand_id: profile.brand_id || "", 
+      is_active: profile.is_active ?? true
+    }); 
+    setPanel({ mode: "edit", type: "commercial", data: { id: profile.id } }); 
+  };
   
   const openAddFlotte = () => { setFForm({ immat: "", type: "", cap_kg: 0, cap_m3: 0, commercial: "", status: "disponible" }); setPanel({ mode: "add", type: "flotte" }); };
   const openEditFlotte = (vehicle) => { setFForm({ immat: vehicle.immat || "", type: vehicle.type || "", cap_kg: vehicle.cap_kg || 0, cap_m3: vehicle.cap_m3 || 0, commercial: vehicle.commercial || "", status: vehicle.status || "disponible" }); setPanel({ mode: "edit", type: "flotte", data: vehicle }); };
@@ -230,7 +239,7 @@ const saveVendor = async () => {
   const openEditMachine = (m) => { setMForm({ code: m.code || "", name: m.name || "", type: m.type || "", status: m.status || "operationnel", locationZone: m.locationZone || "", lastMaintenance: m.lastMaintenance || "", nextMaintenance: m.nextMaintenance || "" }); setPanel({ mode: "edit", type: "machine", data: m }); };
 
   const summaryCards = [
-    { label: "Vendeurs actifs", value: vendors.length, accent: "bg-blue-50 text-blue-700" },
+    { label: "Commerciaux actifs", value: userProfiles.length, accent: "bg-blue-50 text-blue-700" },
     { label: "Véhicules enregistrés", value: flotte.length, accent: "bg-slate-50 text-slate-700" },
     { label: "Machines Usine", value: machines.length, accent: "bg-purple-50 text-purple-700" },
   ];
@@ -242,7 +251,7 @@ const saveVendor = async () => {
       <div className="flex items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-gray-900">Configuration</h1>
-          <p className="text-xs text-gray-400 mt-0.5">Paramètres système · Vendeurs · Véhicules · Équipements</p>
+          <p className="text-xs text-gray-400 mt-0.5">Paramètres système · Équipe Commerciale · Véhicules · Équipements</p>
         </div>
       </div>
 
@@ -257,7 +266,7 @@ const saveVendor = async () => {
 
       <div className="flex flex-wrap gap-2 border-b border-gray-100 pb-2">
         <button onClick={() => setActiveTab("general")} className={`px-4 py-2 rounded-xl text-xs font-bold border transition ${activeTab === "general" ? "bg-blue-600 text-white border-blue-600 shadow-sm" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}>⚙️ Paramètres</button>
-        <button onClick={() => setActiveTab("vendors")} className={`px-4 py-2 rounded-xl text-xs font-bold border transition ${activeTab === "vendors" ? "bg-blue-600 text-white border-blue-600 shadow-sm" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}>👤 Vendeurs ({vendors.length})</button>
+        <button onClick={() => setActiveTab("commercial")} className={`px-4 py-2 rounded-xl text-xs font-bold border transition ${activeTab === "commercial" ? "bg-blue-600 text-white border-blue-600 shadow-sm" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}>👤 Commerciaux ({userProfiles.length})</button>
         <button onClick={() => setActiveTab("flotte")} className={`px-4 py-2 rounded-xl text-xs font-bold border transition ${activeTab === "flotte" ? "bg-blue-600 text-white border-blue-600 shadow-sm" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}>🚚 Véhicules ({flotte.length})</button>
         <button onClick={() => setActiveTab("machines")} className={`px-4 py-2 rounded-xl text-xs font-bold border transition ${activeTab === "machines" ? "bg-blue-600 text-white border-blue-600 shadow-sm" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}>🏭 Machines ({machines.length})</button>
       </div>
@@ -269,7 +278,6 @@ const saveVendor = async () => {
         </Card>
       ) : (
         <>
-          {/* ... onglets general, flotte, machines inchangés ... */}
           {activeTab === "general" && (
             <Card className="p-5">
               <div className="text-sm font-bold text-gray-900 mb-4">⚙️ Paramètres Direction</div>
@@ -281,64 +289,57 @@ const saveVendor = async () => {
             </Card>
           )}
 
-          {activeTab === "vendors" && (
+          {activeTab === "commercial" && (
             <Card className="overflow-hidden">
               <div className="px-4 py-3 border-b border-gray-50 bg-gray-50/50 flex justify-between items-center">
-                <span className="text-xs font-bold text-gray-700">Liste des Vendeurs / Chauffeurs</span>
-                <Btn variant="primary" size="xs" onClick={openAddVendor}>+ Ajouter un vendeur</Btn>
+                <span className="text-xs font-bold text-gray-700">Liste des Commerciaux / Chauffeurs</span>
+                <Btn variant="primary" size="xs" onClick={openAddCommercial}>+ Ajouter un commercial</Btn>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 text-xs font-bold text-gray-500 uppercase">
                     <tr>
-                      <th className="text-left px-4 py-3">Code</th>
                       <th className="text-left px-4 py-3">Nom</th>
+                      <th className="text-left px-4 py-3">Email</th>
                       <th className="text-left px-4 py-3">Marque</th>
-                      <th className="text-left px-4 py-3">Zone (Unique)</th>
+                      <th className="text-left px-4 py-3">Zone</th>
                       <th className="text-left px-4 py-3">Téléphone</th>
                       <th className="text-left px-4 py-3">Véhicule</th>
                       <th className="text-center px-4 py-3">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-  {vendors.map(v => {
-    const matchingVehicle = flotte.find(f => String(f.id) === String(v.vehicle_id));
-    
-    // CORRECTION : Trouver la marque et la zone correspondantes dans les listes chargées depuis Supabase
-    const matchingBrand = brandsList.find(b => String(b.id) === String(v.brand_id));
-    const matchingZone = zonesList.find(z => String(z.id) === String(v.zone_id));
+                    {userProfiles.map(u => {
+                      const matchingVehicle = flotte.find(f => String(f.id) === String(u.vehicle_id));
+                      const matchingBrand = brandsList.find(b => String(b.id) === String(u.brand_id));
+                      const matchingZone = zonesList.find(z => String(z.id) === String(u.zone_id));
 
-    return (
-      <tr key={v.id} className="hover:bg-gray-50">
-        <td className="px-4 py-3 font-bold text-blue-600">{v.code}</td>
-        <td className="px-4 py-3 font-medium text-gray-900">{v.name}</td>
-        
-        {/* AFFICHAGE MARQUE CORRIGÉ */}
-        <td className="px-4 py-3">
-          <span className="bg-purple-100 text-purple-800 font-semibold text-xs px-2 py-0.5 rounded">
-            {matchingBrand ? matchingBrand.name : "Non spécifiée"}
-          </span>
-        </td>
-        
-        {/* AFFICHAGE ZONE CORRIGÉ */}
-        <td className="px-4 py-3 text-gray-700 font-medium">
-          {matchingZone ? matchingZone.name : "—"}
-        </td>
-        
-        <td className="px-4 py-3 text-gray-600">{v.phone || "—"}</td>
-        <td className="px-4 py-3">
-          <span className="bg-slate-100 text-slate-700 font-mono text-xs px-2 py-0.5 rounded">
-            {matchingVehicle ? matchingVehicle.immat : (v.vehicle_plate || "Non assigné")}
-          </span>
-        </td>
-        <td className="px-4 py-3 text-center">
-          <button className="text-blue-600 mr-3" onClick={() => openEditVendor(v)}>✏️</button>
-          <button className="text-red-600" onClick={() => delVendor(v.id)}>🗑️</button>
-        </td>
-      </tr>
-    );
-  })}
-</tbody>
+                      return (
+                        <tr key={u.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 font-medium text-gray-900">{u.full_name}</td>
+                          <td className="px-4 py-3 text-gray-500 text-xs">{u.email}</td>
+                          <td className="px-4 py-3">
+                            <span className="bg-purple-100 text-purple-800 font-semibold text-xs px-2 py-0.5 rounded">
+                              {matchingBrand ? matchingBrand.name : "Non spécifiée"}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-gray-700 font-medium">
+                            {matchingZone ? matchingZone.name : "—"}
+                          </td>
+                          <td className="px-4 py-3 text-gray-600">{u.phone || "—"}</td>
+                          <td className="px-4 py-3">
+                            <span className="bg-slate-100 text-slate-700 font-mono text-xs px-2 py-0.5 rounded">
+                              {matchingVehicle ? matchingVehicle.immat : (u.vehicle_plate || "Non assigné")}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <button className="text-blue-600 mr-3" onClick={() => openEditCommercial(u)}>✏️</button>
+                            <button className="text-red-600" onClick={() => delCommercial(u.id)}>🗑️</button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
                 </table>
               </div>
             </Card>
@@ -430,84 +431,70 @@ const saveVendor = async () => {
         </>
       )}
 
-      {/* MODALE VENDEUR MODIFIÉE AVEC BRAND & ZONE EXCLUSIFS */}
-      <Modal open={!!panel} onClose={() => setPanel(null)} title={panel?.type === "flotte" ? "🚚 Gestion Véhicule" : panel?.type === "vendor" ? "👤 Gestion Vendeur" : "🏭 Gestion Machine"} maxWidth="max-w-2xl">
-        {panel?.type === "vendor" && (
+      {/* MODALE COMMERCIAL MODIFIÉE */}
+      <Modal open={!!panel} onClose={() => setPanel(null)} title={panel?.type === "flotte" ? "🚚 Gestion Véhicule" : panel?.type === "commercial" ? "👤 Gestion Commercial" : "🏭 Gestion Machine"} maxWidth="max-w-2xl">
+        {panel?.type === "commercial" && (
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               
-              <div className="flex flex-col gap-1.5 md:col-span-2">
-                <label className="text-xs font-bold text-gray-700 uppercase tracking-wider">
-                  Associer le Compte Utilisateur (Email) *
-                </label>
+              <Input label="Nom complet commercial *" value={vForm.full_name} onChange={e => setVForm(f => ({ ...f, full_name: e.target.value }))} />
+              <Input label="Email de connexion *" type="email" value={vForm.email} onChange={e => setVForm(f => ({ ...f, email: e.target.value }))} disabled={panel.mode === "edit"} />
+              {panel.mode === "add" && (
+                <Input label="Mot de passe *" type="password" placeholder="Minimum 6 caractères" value={vForm.password || ""} onChange={e => setVForm(f => ({ ...f, password: e.target.value }))} />
+              )}
+              <Input label="Téléphone direct" placeholder="9X XXX XXX" value={vForm.phone || ""} onChange={e => setVForm(f => ({ ...f, phone: e.target.value }))} />
+              
+              {/* SÉLECTEUR DE MARQUE DYNAMIQUE */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-bold text-gray-700 uppercase tracking-wider">Marque Attribuée *</label>
                 <select 
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm font-medium bg-blue-50/30 border-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-400 min-h-[40px]" 
-                  value={vForm.user_profile_id || ""} 
-                  onChange={e => handleProfileChange(e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-amber-50/30 border-amber-200 min-h-[40px]" 
+                  value={vForm.brand_id || ""} 
+                  onChange={e => setVForm(f => ({ ...f, brand_id: e.target.value }))}
                 >
-                  <option value="">-- Sélectionner le compte de destination --</option>
-                  {userProfiles.map(up => (
-                    <option key={up.id} value={up.id}>{up.full_name} ({up.email})</option>
+                  <option value="">-- Choisir une Marque --</option>
+                  {brandsList.map(b => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
                   ))}
                 </select>
               </div>
 
-              <Input label="Nom complet vendeur *" value={vForm.name} onChange={e => setVForm(f => ({ ...f, name: e.target.value }))} />
-              <Input label="Code interne" placeholder="V01" value={vForm.code || ""} onChange={e => setVForm(f => ({ ...f, code: e.target.value }))} />
-              <Input label="Téléphone direct" placeholder="9X XXX XXX" value={vForm.phone || ""} onChange={e => setVForm(f => ({ ...f, phone: e.target.value }))} />
-              
-              {/* SÉLECTEUR DE MARQUE DYNAMIQUE */}
-<div className="flex flex-col gap-1.5">
-  <label className="text-xs font-bold text-gray-700 uppercase tracking-wider">Marque Attribuée *</label>
-  <select 
-    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-amber-50/30 border-amber-200 min-h-[40px]" 
-    value={vForm.brand_id || ""} 
-    onChange={e => setVForm(f => ({ ...f, brand_id: e.target.value }))}
-  >
-    <option value="">-- Choisir une Marque --</option>
-    {brandsList.map(b => (
-      <option key={b.id} value={b.id}>{b.name}</option>
-    ))}
-  </select>
-</div>
-
-{/* SÉLECTEUR DE ZONE DYNAMIQUE */}
-<div className="flex flex-col gap-1.5">
-  <label className="text-xs font-bold text-gray-700 uppercase tracking-wider">Zone Géographique Exclusive *</label>
-  <select 
-    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 min-h-[40px]" 
-    value={vForm.zone_id || ""} 
-    onChange={e => setVForm(f => ({ ...f, zone_id: e.target.value }))}
-  >
-    <option value="">-- Choisir une Zone --</option>
-    {zonesList.map(z => (
-      <option key={z.id} value={z.id}>{z.name}</option>
-    ))}
-  </select>
-  </div>
+              {/* SÉLECTEUR DE ZONE DYNAMIQUE */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-bold text-gray-700 uppercase tracking-wider">Zone Géographique Exclusive *</label>
+                <select 
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 min-h-[40px]" 
+                  value={vForm.zone_id || ""} 
+                  onChange={e => setVForm(f => ({ ...f, zone_id: e.target.value }))}
+                >
+                  <option value="">-- Choisir une Zone --</option>
+                  {zonesList.map(z => (
+                    <option key={z.id} value={z.id}>{z.name}</option>
+                  ))}
+                </select>
+              </div>
 
               <div className="flex flex-col gap-1.5 md:col-span-2">
-  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Véhicule Assigné</label>
-  <select 
-    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 min-h-[40px]" 
-    value={String(vForm.vehicle_id || "")} // <-- AJOUT DE String(...) ICI
-    onChange={e => setVForm(f => ({ ...f, vehicle_id: e.target.value }))}
-  >
-    <option value="">-- Aucun véhicule --</option>
-    {flotte.map(v => (
-      <option key={v.id} value={String(v.id)}>{v.immat} ({v.type || "Standard"})</option>
-    ))}
-  </select>
-</div>
+                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Véhicule Assigné</label>
+                <select 
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 min-h-[40px]" 
+                  value={String(vForm.vehicle_id || "")}
+                  onChange={e => setVForm(f => ({ ...f, vehicle_id: e.target.value }))}
+                >
+                  <option value="">-- Aucun véhicule --</option>
+                  {flotte.map(v => (
+                    <option key={v.id} value={String(v.id)}>{v.immat} ({v.type || "Standard"})</option>
+                  ))}
+                </select>
+              </div>
             </div>
-            <div className="flex gap-2">
-              <Btn variant="success" className="flex-1" onClick={saveVendor}><Ico n="chk" size={14} stroke="#fff" />Sauvegarder</Btn>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
               <Btn variant="secondary" onClick={() => setPanel(null)}>Annuler</Btn>
+              <Btn variant="primary" onClick={saveCommercial}>Enregistrer</Btn>
             </div>
           </div>
         )}
-
-        {/* ... modales flotte et machines inchangées ... */}
         {panel?.type === "flotte" && (
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
