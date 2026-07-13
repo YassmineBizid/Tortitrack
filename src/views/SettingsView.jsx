@@ -89,18 +89,18 @@ const saveCommercial = async () => {
   }
 
   // 1. Préparation des données du profil
-  const payload = {
-    full_name: vForm.full_name,
-    email: vForm.email,
-    phone: vForm.phone ? parseFloat(vForm.phone.replace(/\s/g, "")) || null : null,
-    brand_id: vForm.brand_id || null,
-    zone_id: vForm.zone_id || null,
-    vehicle_id: correctVehicleId,
-    vehicle_plate: selectedVehicle ? selectedVehicle.immat : (vForm.vehicle_plate || ""),
-    role: "commercial",
-    role_code: "commercial",
-    is_active: true
-  };
+const payload = {
+  full_name: vForm.full_name,
+  email: vForm.email,
+  phone: vForm.phone ? parseFloat(String(vForm.phone).replace(/\s/g, "")) || null : null,
+  brand_id: vForm.brand_id || null,
+  zone_id: vForm.zone_id || null,
+  vehicle_id: correctVehicleId,
+  vehicle_plate: selectedVehicle ? selectedVehicle.immat : (vForm.vehicle_plate || ""),
+  role: "commercial",
+  role_code: "commercial",
+  is_active: true
+};
 
   let error = null;
 
@@ -431,7 +431,6 @@ const saveCommercial = async () => {
         </>
       )}
 
-      {/* MODALE COMMERCIAL MODIFIÉE */}
       <Modal open={!!panel} onClose={() => setPanel(null)} title={panel?.type === "flotte" ? "🚚 Gestion Véhicule" : panel?.type === "commercial" ? "👤 Gestion Commercial" : "🏭 Gestion Machine"} maxWidth="max-w-2xl">
         {panel?.type === "commercial" && (
           <div className="space-y-4">
@@ -502,7 +501,6 @@ const saveCommercial = async () => {
               <Input label="Type" placeholder="Camionnette / Camion" value={fForm.type} onChange={e => setFForm(f => ({ ...f, type: e.target.value }))} />
               <Input label="Capacité Kg" type="number" min="0" value={fForm.cap_kg} onChange={e => setFForm(f => ({ ...f, cap_kg: e.target.value }))} />
               <Input label="Capacité m³" type="number" min="0" value={fForm.cap_m3} onChange={e => setFForm(f => ({ ...f, cap_m3: e.target.value }))} />
-              <Input label="Commercial" placeholder="Ahmed Belhaj" value={fForm.commercial} onChange={e => setFForm(f => ({ ...f, commercial: e.target.value }))} />
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Statut</label>
                 <select className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" value={fForm.status} onChange={e => setFForm(f => ({ ...f, status: e.target.value }))}>
