@@ -129,7 +129,7 @@ export function LoginPage() {
         </div>
         <div className="shell-title">Module Sortie &amp; Retour PF</div>
         <div className="shell-sep" />
-        <div className="shell-context">BT Food Industry</div>
+        <div className="shell-context">TORTITRACK</div>
       </div>
 
       {/* Center content */}
@@ -148,7 +148,7 @@ export function LoginPage() {
                 <path d="M1 3h15v13H1z M16 8h4l3 3v5h-7V8z"/>
               </svg>
             </div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: "var(--text)", letterSpacing: "-.3px" }}>BT Food Industry</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: "var(--text)", letterSpacing: "-.3px" }}>TORTITRACK</div>
             <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 4 }}>Gestion des sorties, retours &amp; production</div>
           </div>
 
@@ -299,7 +299,7 @@ export function LoginPage() {
 
           {/* Footer */}
           <div style={{ textAlign: "center", marginTop: 24, fontSize: 11, color: "var(--subtle)", fontFamily: "var(--mono)" }}>
-            YBAK Solutions — ELKATEB GROUP © 2026
+            YASS Solutions © 2026
           </div>
         </div>
       </div>
